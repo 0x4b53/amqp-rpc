@@ -33,3 +33,8 @@ func (c *Client) AlsoNotTested(a, b int) int {
 
 	return a - b
 }
+
+// StillNotTested is a function implemented to test code coverage.
+func (c *Client) StillNotTested() bool {
+	return true
+}
