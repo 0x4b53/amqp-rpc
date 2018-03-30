@@ -2,6 +2,10 @@ package client
 
 import "testing"
 
-func TestTodo(t *testing.T) {
-	t.Log("No tests yet.")
+func TestNewClient(t *testing.T) {
+	c := New()
+
+	if c == nil {
+		t.Error("Expected a client")
+	}
 }
