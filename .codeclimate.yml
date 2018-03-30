@@ -1,8 +1,6 @@
 ---
 version: "2"
 
-# Need do configure 'Test coverage' under 'Analysis'? 
-
 checks:
   argument-count:
     config:
@@ -59,7 +57,18 @@ plugins:
         - NOTE
 
 exclude_patterns:
-  - .vendor/
-  - benchmarks/**/*
+  - "config/"
+  - "db/"
+  - "dist/"
+  - "features/"
+  - "**/node_modules/"
+  - "script/"
+  - "**/spec/"
+  - "**/test/"
+  - "**/tests/"
+  - "Tests/"
+  - "**/vendor/"
+  - "**/*_test.go"
+  - "**/*.d.ts"
 
 # vim: set ts=2 sw=2 et:

@@ -4,7 +4,6 @@ go:
 
 install:
   - go get -v github.com/golang/dep/cmd/dep
-  - go get -v github.com/codeclimate/test-reporter
   - dep ensure -v -vendor-only
 
 env:
@@ -13,13 +12,15 @@ env:
     - AMQP_URL=amqp://guest:guest@127.0.0.1:5672/
 
 before_script:
-  - test-reporter before-build
+  - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+  - chmod +x ./cc-test-reporter
+  - ./cc-test-reporter before-build
 
-script: 
+script:
   - go test -v -coverprofile c.out ./...
 
 after_script:
-  - test-reporter after-build --exit-code $TRAVIS_TEST_RESULT
+  - ./cc-test-reporter after-build --exit-code $TRAVIS_TEST_RESULT
 
 notifications:
   email:
