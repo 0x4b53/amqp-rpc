@@ -14,7 +14,7 @@ type Client struct {
 // New will return a pointer to a new Client.
 func New() *Client {
 	return &Client{
-		context: context.TODO(),
+		context: context.Background(),
 	}
 }
 
