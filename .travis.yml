@@ -1,0 +1,30 @@
+language: go
+go:
+  - "1.10"
+
+install:
+  - go get -v github.com/golang/dep/cmd/dep
+  - dep ensure -v -vendor-only
+
+env:
+  global:
+    - CC_TEST_REPORTER_ID=19911b8a2aa8aee6febf2f0d960d66b028a6c32a3aaa41a7a785434b2946c8d7
+    - AMQP_URL=amqp://guest:guest@127.0.0.1:5672/
+
+before_script:
+  - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+  - chmod +x ./cc-test-reporter
+  - ./cc-test-reporter before-build
+
+script:
+  - go test -v -coverprofile c.out ./...
+
+after_script:
+  - ./cc-test-reporter after-build --exit-code $TRAVIS_TEST_RESULT
+
+notifications:
+  email:
+    on_success: change
+    on_failure: change
+
+# vim: set ts=2 sw=2 et:
