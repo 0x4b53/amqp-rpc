@@ -70,5 +70,6 @@ exclude_patterns:
   - "**/vendor/"
   - "**/*_test.go"
   - "**/*.d.ts"
+  - "examples"
 
 # vim: set ts=2 sw=2 et:

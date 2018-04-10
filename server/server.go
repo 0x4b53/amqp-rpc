@@ -21,6 +21,7 @@ var (
 type RPCServer struct {
 	handlers  map[string]handlerFunc
 	responses chan responseObj
+	reconnect chan bool
 }
 
 type responseObj struct {
@@ -51,6 +52,11 @@ func (s *RPCServer) ListenAndServe() {
 		if err != nil {
 			fmt.Println(err)
 		}
+
+		bye := <-s.reconnect
+		if bye {
+			break
+		}
 	}
 }
 
@@ -62,12 +68,16 @@ func (s *RPCServer) listenAndServe() error {
 		return err
 	}
 
-	monitorConnection(conn)
+	defer conn.Close()
+
+	s.monitorConnection(conn)
 
 	inputCh, err := conn.Channel()
 	if err != nil {
 		return err
 	}
+
+	defer inputCh.Close()
 
 	for queueName, handler := range s.handlers {
 		err := s.consume(queueName, handler, inputCh)
@@ -79,13 +89,57 @@ func (s *RPCServer) listenAndServe() error {
 	return nil
 }
 
-func monitorConnection(c *amqp.Connection) {
+func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp.Channel) error {
+	queue, err := inputCh.QueueDeclare(
+		queueName, // name
+		false,     // durable
+		false,     // delete when usused
+		false,     // exclusive
+		false,     // no-wait
+		nil,       // arguments
+	)
+
+	if err != nil {
+		return err
+	}
+
+	deliveries, err := inputCh.Consume(
+		queue.Name, // queue
+		"",         // consumer
+		true,       // autoAck
+		false,      // exclusive
+		false,      // noLocal
+		false,      // noWait
+		nil,        // args
+	)
+
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Serving up queue '%s'\n", queue.Name)
+
+	go func() {
+		for delivery := range deliveries {
+			response := handler(context.TODO(), &delivery)
+
+			s.responses <- responseObj{
+				response: response,
+				delivery: &delivery,
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (s *RPCServer) monitorConnection(c *amqp.Connection) {
 	go func() {
 		for {
 			connClosed := c.NotifyClose(make(chan *amqp.Error))
 
 			if <-connClosed != nil {
-				// Time to reconnect
+				s.reconnect <- true
 			}
 		}
 	}()
@@ -111,36 +165,5 @@ func (s *RPCServer) responder(outCh *amqp.Channel) error {
 		if err != nil {
 			return ErrChannelClosed
 		}
-	}
-}
-
-func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp.Channel) error {
-	deliveries, err := inputCh.Consume(
-		queueName, // queue
-		"",        // consumer
-		false,     // autoAck
-		false,     // exclusive
-		false,     // noLocal
-		false,     // noWait
-		nil,       // args
-	)
-	if err != nil {
-		return err
-	}
-
-	for {
-		delivery, ok := <-deliveries
-		if !ok {
-			return ErrChannelClosed
-		}
-
-		go func(d *amqp.Delivery) {
-			response := handler(context.TODO(), d)
-
-			s.responses <- responseObj{
-				response: response,
-				delivery: d,
-			}
-		}(&delivery)
 	}
 }
