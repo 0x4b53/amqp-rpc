@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
+	"time"
 
 	"github.com/streadway/amqp"
 )
@@ -19,9 +19,9 @@ var (
 // RPCServer represents a RabbitMQ RPC server.
 // The server holds a map of all handlers.
 type RPCServer struct {
-	handlers  map[string]handlerFunc
-	responses chan responseObj
-	reconnect chan bool
+	handlers    map[string]handlerFunc
+	responses   chan responseObj
+	currentConn *amqp.Connection
 }
 
 type responseObj struct {
@@ -46,37 +46,37 @@ func (s *RPCServer) AddHandler(queueName string, handler handlerFunc) {
 // ListenAndServe will dial the RabbitMQ message bus, set up
 // all the channels, consume from all RPC server queues and monitor
 // to connection to ensure the server is always connected.
-func (s *RPCServer) ListenAndServe() {
-	for {
-		err := s.listenAndServe()
-		if err != nil {
-			fmt.Println(err)
-		}
+func (s *RPCServer) ListenAndServe(url string) {
+	s.responses = make(chan responseObj)
 
-		bye := <-s.reconnect
-		if bye {
-			break
+	for {
+		err := s.listenAndServe(url)
+		fmt.Println("Exited listenAndServe")
+		if err != nil {
+			fmt.Println("Got error:", err, "will reconnect in 1 second")
 		}
+		fmt.Println("Reconnecting 1 second")
+
+		time.Sleep(1 * time.Second)
 	}
 }
 
-func (s *RPCServer) listenAndServe() error {
-	s.responses = make(chan responseObj)
+func (s *RPCServer) listenAndServe(url string) error {
+	fmt.Println("starting listener:", url)
 
-	conn, err := amqp.Dial(os.Getenv("AMQP_URL"))
+	conn, err := amqp.Dial(url)
 	if err != nil {
 		return err
 	}
 
-	defer conn.Close()
+	s.currentConn = conn
 
-	s.monitorConnection(conn)
+	defer conn.Close()
 
 	inputCh, err := conn.Channel()
 	if err != nil {
 		return err
 	}
-
 	defer inputCh.Close()
 
 	for queueName, handler := range s.handlers {
@@ -86,7 +86,15 @@ func (s *RPCServer) listenAndServe() error {
 		}
 	}
 
-	return nil
+	outputCh, err := conn.Channel()
+	if err != nil {
+		return err
+	}
+	defer outputCh.Close()
+
+	go s.responder(outputCh)
+
+	return <-conn.NotifyClose(make(chan *amqp.Error))
 }
 
 func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp.Channel) error {
@@ -117,10 +125,10 @@ func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp
 		return err
 	}
 
-	fmt.Printf("Serving up queue '%s'\n", queue.Name)
-
+	fmt.Println("Waiting for messages on queue", queue.Name)
 	go func() {
 		for delivery := range deliveries {
+			fmt.Println("Got RPC delivery", string(delivery.Body))
 			response := handler(context.TODO(), &delivery)
 
 			s.responses <- responseObj{
@@ -133,18 +141,6 @@ func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp
 	return nil
 }
 
-func (s *RPCServer) monitorConnection(c *amqp.Connection) {
-	go func() {
-		for {
-			connClosed := c.NotifyClose(make(chan *amqp.Error))
-
-			if <-connClosed != nil {
-				s.reconnect <- true
-			}
-		}
-	}()
-}
-
 func (s *RPCServer) responder(outCh *amqp.Channel) error {
 	for {
 		response, ok := <-s.responses
@@ -152,6 +148,7 @@ func (s *RPCServer) responder(outCh *amqp.Channel) error {
 			return ErrResponseChClosed
 		}
 
+		fmt.Println("Will publish response", string(response.response))
 		err := outCh.Publish(
 			"", // exchange
 			response.delivery.ReplyTo,
@@ -163,7 +160,9 @@ func (s *RPCServer) responder(outCh *amqp.Channel) error {
 		)
 
 		if err != nil {
-			return ErrChannelClosed
+			fmt.Println("Could not publish response, will retry later")
+			s.responses <- response
+			return err
 		}
 	}
 }

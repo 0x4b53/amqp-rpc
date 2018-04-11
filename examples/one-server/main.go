@@ -13,7 +13,7 @@ func main() {
 
 	server.AddHandler("hello_world", handleHelloWorld)
 
-	server.ListenAndServe()
+	server.ListenAndServe("amqp://guest:guest@localhost:5672/")
 }
 
 func handleHelloWorld(c context.Context, d *amqp.Delivery) []byte {
