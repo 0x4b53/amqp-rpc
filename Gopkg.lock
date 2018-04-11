@@ -7,9 +7,15 @@
   packages = ["."]
   revision = "8e4aba63da9fc5571e01c6a45dc809a58cbc5a68"
 
+[[projects]]
+  name = "gopkg.in/go-playground/assert.v1"
+  packages = ["."]
+  revision = "4f4dfbc7d1c48336cf93399deae81aa9067e88af"
+  version = "v1.2.1"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "b9e9d2f6b3c495200d5a3caaf04941db75013009343aac61f330eb613ea20587"
+  inputs-digest = "b5d70e49c73d9c7f2d0a924f52d6198fcaa19f8f904614b64cec99ad53d0c537"
   solver-name = "gps-cdcl"
   solver-version = 1
