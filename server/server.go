@@ -3,10 +3,11 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/streadway/amqp"
+
+	"github.com/bombsimon/amqp-rpc/logger"
 )
 
 var (
@@ -51,18 +52,16 @@ func (s *RPCServer) ListenAndServe(url string) {
 
 	for {
 		err := s.listenAndServe(url)
-		fmt.Println("Exited listenAndServe")
 		if err != nil {
-			fmt.Println("Got error:", err, "will reconnect in 1 second")
+			logger.Warnf("got error: %s, will reconnect in %d second(s)", err.Error(), 1)
 		}
-		fmt.Println("Reconnecting 1 second")
 
 		time.Sleep(1 * time.Second)
 	}
 }
 
 func (s *RPCServer) listenAndServe(url string) error {
-	fmt.Println("starting listener:", url)
+	logger.Infof("staring listener: %s", url)
 
 	conn, err := amqp.Dial(url)
 	if err != nil {
@@ -125,10 +124,10 @@ func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp
 		return err
 	}
 
-	fmt.Println("Waiting for messages on queue", queue.Name)
+	logger.Infof("Waiting for messages on queue '%s'", queue.Name)
 	go func() {
 		for delivery := range deliveries {
-			fmt.Println("Got RPC delivery", string(delivery.Body))
+			logger.Infof("got RPC delivery on queue '%s'", queue.Name)
 			response := handler(context.TODO(), &delivery)
 
 			s.responses <- responseObj{
@@ -148,7 +147,7 @@ func (s *RPCServer) responder(outCh *amqp.Channel) error {
 			return ErrResponseChClosed
 		}
 
-		fmt.Println("Will publish response", string(response.response))
+		logger.Infof("request processed, will publish response")
 		err := outCh.Publish(
 			"", // exchange
 			response.delivery.ReplyTo,
@@ -160,7 +159,7 @@ func (s *RPCServer) responder(outCh *amqp.Channel) error {
 		)
 
 		if err != nil {
-			fmt.Println("Could not publish response, will retry later")
+			logger.Warnf("could not publish response, will retry later")
 			s.responses <- response
 			return err
 		}

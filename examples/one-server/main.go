@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/bombsimon/amqp-rpc/logger"
 	rmq_server "github.com/bombsimon/amqp-rpc/server"
+
 	"github.com/streadway/amqp"
 )
 
@@ -17,7 +19,7 @@ func main() {
 }
 
 func handleHelloWorld(c context.Context, d *amqp.Delivery) []byte {
-	fmt.Println("Handling 'Hello world' request")
+	logger.Infof("Handling 'Hello world' request")
 
 	return []byte(fmt.Sprintf("Got message: %s", d.Body))
 }
