@@ -20,9 +20,9 @@ var (
 // RPCServer represents a RabbitMQ RPC server.
 // The server holds a map of all handlers.
 type RPCServer struct {
-	handlers    map[string]handlerFunc
-	responses   chan responseObj
-	currentConn *amqp.Connection
+	handlers   map[string]handlerFunc
+	responses  chan responseObj
+	dialconfig amqp.Config
 }
 
 type responseObj struct {
@@ -39,6 +39,11 @@ func New() *RPCServer {
 	}
 }
 
+// SetAMQPConfig sets the amqp.Config object to be used when dialing.
+func (s *RPCServer) SetAMQPConfig(config amqp.Config) {
+	s.dialconfig = config
+}
+
 // AddHandler adds a new handler to the RPC server.
 func (s *RPCServer) AddHandler(queueName string, handler handlerFunc) {
 	s.handlers[queueName] = handler
@@ -53,22 +58,22 @@ func (s *RPCServer) ListenAndServe(url string) {
 	for {
 		err := s.listenAndServe(url)
 		if err != nil {
-			logger.Warnf("got error: %s, will reconnect in %d second(s)", err.Error(), 1)
+			logger.Warnf("got error: %s, will reconnect in %d second(s)", err, 1)
+			time.Sleep(500 * time.Millisecond)
+			continue
 		}
-
-		time.Sleep(1 * time.Second)
+		logger.Info("listener exiting gracefully")
+		// return
 	}
 }
 
 func (s *RPCServer) listenAndServe(url string) error {
 	logger.Infof("staring listener: %s", url)
 
-	conn, err := amqp.Dial(url)
+	conn, err := amqp.DialConfig(url, s.dialconfig)
 	if err != nil {
 		return err
 	}
-
-	s.currentConn = conn
 
 	defer conn.Close()
 
@@ -93,7 +98,13 @@ func (s *RPCServer) listenAndServe(url string) error {
 
 	go s.responder(outputCh)
 
-	return <-conn.NotifyClose(make(chan *amqp.Error))
+	err, ok := <-conn.NotifyClose(make(chan *amqp.Error))
+	if !ok {
+		// The connection was closed gracefully.
+		return nil
+	}
+	// The connection wasn't closed gracefully.
+	return err
 }
 
 func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp.Channel) error {
@@ -113,7 +124,7 @@ func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp
 	deliveries, err := inputCh.Consume(
 		queue.Name, // queue
 		"",         // consumer
-		true,       // autoAck
+		false,      // autoAck
 		false,      // exclusive
 		false,      // noLocal
 		false,      // noWait
@@ -124,17 +135,19 @@ func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp
 		return err
 	}
 
-	logger.Infof("Waiting for messages on queue '%s'", queue.Name)
 	go func() {
+		logger.Infof("waiting for messages on queue '%s'", queue.Name)
 		for delivery := range deliveries {
-			logger.Infof("got RPC delivery on queue '%s'", queue.Name)
+			logger.Info("got message")
 			response := handler(context.TODO(), &delivery)
+			delivery.Ack(false)
 
 			s.responses <- responseObj{
 				response: response,
 				delivery: &delivery,
 			}
 		}
+		logger.Infof("stopped waiting for messages on queue '%s'", queue.Name)
 	}()
 
 	return nil

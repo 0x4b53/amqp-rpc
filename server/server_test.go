@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -69,11 +70,35 @@ func TestPublishReply(t *testing.T) {
 	reply, ok := <-msgs
 	Equal(t, ok, true)
 	Equal(t, reply.Body, []byte("Got message: this is a message"))
+}
+
+func testDialer(t *testing.T) (func(string, string) (net.Conn, error), func() net.Conn) {
+	var conn net.Conn
+
+	return func(network, addr string) (net.Conn, error) {
+			var err error
+
+			conn, err = net.DialTimeout(network, addr, 2*time.Second)
+			if err != nil {
+				return nil, err
+			}
+			// Heartbeating hasn't started yet, don't stall forever on a dead server.
+			// A deadline is set for TLS and AMQP handshaking. After AMQP is established,
+			// the deadline is cleared in openComplete.
+			if err = conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+				return nil, err
+			}
+
+			return conn, nil
+		}, func() net.Conn {
+			return conn
+		}
 
 }
 
 func TestReconnect(t *testing.T) {
 	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+
 	Equal(t, err, nil)
 	defer conn.Close()
 
@@ -88,32 +113,44 @@ func TestReconnect(t *testing.T) {
 		false, // noWait
 	)
 
+	msgs, replyQueue := replyToConsumer(t, ch)
+
 	s := New()
+	dialer, getNetConn := testDialer(t)
+	s.SetAMQPConfig(amqp.Config{
+		Dial: dialer,
+	})
 	s.AddHandler("myqueue", func(ctx context.Context, d *amqp.Delivery) []byte {
 		return []byte(fmt.Sprintf("Got message: %s", d.Body))
 	})
 	go s.ListenAndServe("amqp://guest:guest@localhost:5672/")
 
-	msgs, replyQueue := replyToConsumer(t, ch)
-
-	time.Sleep(50 * time.Millisecond)
-	s.currentConn.Close()
+	// Sleep a bit to ensure server is started.
 	time.Sleep(50 * time.Millisecond)
 
-	err = ch.Publish(
-		"",        // exchange
-		"myqueue", // routing key
-		false,     // mandatory
-		false,     // immediate
-		amqp.Publishing{
-			ContentType: "text/plain",
-			ReplyTo:     replyQueue,
-			Body:        []byte("this is a message"),
-		},
-	)
-	Equal(t, err, nil)
+	for i := 0; i < 2; i++ {
+		message := fmt.Sprintf("this is message %v", i)
+		err = ch.Publish(
+			"",        // exchange
+			"myqueue", // routing key
+			false,     // mandatory
+			false,     // immediate
+			amqp.Publishing{
+				ContentType: "text/plain",
+				ReplyTo:     replyQueue,
+				Body:        []byte(message),
+			},
+		)
+		Equal(t, err, nil)
 
-	reply, ok := <-msgs
-	Equal(t, ok, true)
-	Equal(t, reply.Body, []byte("Got message: this is a message"))
+		getNetConn().Close()
+
+		select {
+		case reply, ok := <-msgs:
+			Equal(t, ok, true)
+			Equal(t, reply.Body, []byte(fmt.Sprintf("Got message: %s", message)))
+		case <-time.After(1100 * time.Millisecond):
+			t.Error("reply did not arrive")
+		}
+	}
 }
