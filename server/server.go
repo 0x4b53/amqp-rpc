@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"time"
 
@@ -11,8 +12,6 @@ import (
 )
 
 var (
-	// ErrChannelClosed is an error representing a closed channel.
-	ErrChannelClosed = errors.New("Channel closed")
 	// ErrResponseChClosed is an error representing a closed response channel.
 	ErrResponseChClosed = errors.New("Channel closed")
 )
@@ -44,6 +43,11 @@ func (s *RPCServer) SetAMQPConfig(config amqp.Config) {
 	s.dialconfig = config
 }
 
+// SetTLSConfig sets the tls.Config on the AMQP config field TLSClientConfig
+func (s *RPCServer) SetTLSConfig(c *tls.Config) {
+	s.dialconfig.TLSClientConfig = c
+}
+
 // AddHandler adds a new handler to the RPC server.
 func (s *RPCServer) AddHandler(queueName string, handler handlerFunc) {
 	s.handlers[queueName] = handler
@@ -62,8 +66,9 @@ func (s *RPCServer) ListenAndServe(url string) {
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
+
 		logger.Info("listener exiting gracefully")
-		// return
+		break
 	}
 }
 
@@ -81,6 +86,7 @@ func (s *RPCServer) listenAndServe(url string) error {
 	if err != nil {
 		return err
 	}
+
 	defer inputCh.Close()
 
 	for queueName, handler := range s.handlers {
@@ -94,6 +100,7 @@ func (s *RPCServer) listenAndServe(url string) error {
 	if err != nil {
 		return err
 	}
+
 	defer outputCh.Close()
 
 	go s.responder(outputCh)
