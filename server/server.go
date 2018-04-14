@@ -9,6 +9,7 @@ import (
 	"github.com/streadway/amqp"
 
 	"github.com/bombsimon/amqp-rpc/logger"
+	"github.com/bombsimon/amqp-rpc/middleware"
 )
 
 var (
@@ -19,9 +20,10 @@ var (
 // RPCServer represents a RabbitMQ RPC server.
 // The server holds a map of all handlers.
 type RPCServer struct {
-	handlers   map[string]handlerFunc
-	responses  chan responseObj
-	dialconfig amqp.Config
+	handlers    map[string]handlerFunc
+	middlewares []middleware.ServerMiddleware
+	responses   chan responseObj
+	dialconfig  amqp.Config
 }
 
 type responseObj struct {
@@ -56,7 +58,8 @@ func (s *RPCServer) AddHandler(queueName string, handler handlerFunc) {
 // ListenAndServe will dial the RabbitMQ message bus, set up
 // all the channels, consume from all RPC server queues and monitor
 // to connection to ensure the server is always connected.
-func (s *RPCServer) ListenAndServe(url string) {
+func (s *RPCServer) ListenAndServe(url string, middlewares ...middleware.ServerMiddleware) {
+	s.middlewares = middlewares
 	s.responses = make(chan responseObj)
 
 	for {
@@ -146,7 +149,24 @@ func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp
 		logger.Infof("waiting for messages on queue '%s'", queue.Name)
 		for delivery := range deliveries {
 			logger.Info("got message")
-			response := handler(context.TODO(), &delivery)
+
+			var (
+				errMiddleware error
+				response      []byte
+			)
+
+			for _, middleware := range s.middlewares {
+				errMiddleware = middleware(queue.Name, context.TODO(), &delivery)
+				if errMiddleware != nil {
+					response = []byte(errMiddleware.Error())
+					break
+				}
+			}
+
+			if errMiddleware == nil {
+				response = handler(context.TODO(), &delivery)
+			}
+
 			delivery.Ack(false)
 
 			s.responses <- responseObj{
