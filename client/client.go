@@ -47,20 +47,20 @@ type Client struct {
 
 func (c *Client) setDefaults() {
 	c.queueDeclare = queueDeclareSettings{
-		false,
-		true,
-		true,
-		false,
-		nil,
+		durable:         false,
+		dleteWhenUnused: true,
+		exclusive:       true,
+		noWait:          false,
+		args:            nil,
 	}
 
 	c.consume = consumeSettings{
-		"",
-		true,
-		false,
-		false,
-		false,
-		nil,
+		consumer:  "",
+		autoAck:   true,
+		exclusive: false,
+		noLocal:   false,
+		noWait:    false,
+		args:      nil,
 	}
 
 	c.Timeout = 2000 * time.Millisecond
