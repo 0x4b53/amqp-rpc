@@ -76,7 +76,7 @@ func (c *Client) setDefaults() {
 
 	ch, err := c.connection.Channel()
 	if err != nil {
-		logger.Warn("watcha gonna do...")
+		logger.Warn("could not create consumer channel")
 	}
 
 	c.consumerChannel = ch
@@ -85,7 +85,7 @@ func (c *Client) setDefaults() {
 // New will return a pointer to a new Client.
 func New(url string) *Client {
 	c := &Client{
-		context:        context.Background(),
+		context:        context.TODO(),
 		clientMessages: make(chan *clientPublish),
 	}
 
@@ -117,7 +117,7 @@ func New(url string) *Client {
 // a connection created and monitored externally.
 func NewWithConnection(conn *amqp.Connection) *Client {
 	c := &Client{
-		context:        context.Background(),
+		context:        context.TODO(),
 		connection:     conn,
 		clientMessages: make(chan *clientPublish),
 	}
@@ -129,20 +129,18 @@ func NewWithConnection(conn *amqp.Connection) *Client {
 }
 
 func (c *Client) setupChannels() {
-	messages := c.declareAndConsume(c.replyToQueueName)
+	messages := c.declareAndConsume()
 
 	var queueChannels = make(map[string]chan *amqp.Delivery)
 
 	// Messages to publish
 	go func() {
 		for {
-			logger.Info("Waint for messages to publish")
 			request, ok := <-c.clientMessages
 			if !ok {
-				logger.Info("Got message on closed channel")
+				logger.Info("client message channel was closed")
+				break
 			}
-
-			logger.Infof("Got message, publishing on %s", request.routingKey)
 
 			err := c.consumerChannel.Publish(
 				c.Exchange,
@@ -160,7 +158,6 @@ func (c *Client) setupChannels() {
 
 			// Map a request correlation ID to a response channel
 			if request.response != nil {
-				logger.Info("Adding response to response loop channel")
 				queueChannels[request.publishing.CorrelationId] = request.response
 			}
 		}
@@ -169,12 +166,11 @@ func (c *Client) setupChannels() {
 	// Responses from messages published
 	go func() {
 		for {
-			logger.Info("Waiting for replys to respond")
 			response, _ := <-messages
-			logger.Infof("Got corrid '%s'", response.CorrelationId)
 
+			// Check if the published message correlation ID is maped.
+			// This should be true as long as the caller of publish requested a reply.
 			if replyChannel, ok := queueChannels[response.CorrelationId]; ok {
-				logger.Infof("Channel exist, adding response")
 				replyChannel <- &response
 			}
 		}
@@ -201,9 +197,11 @@ func (c *Client) connect(url string) {
 	}
 }
 
+// Publish takes a string with a routing key, a byte slice with a body and a bool
+// set to true or false depending on if a response is desired.
+// Each request will create a channel on which the response will be added when
+// received. If no response is requested, no channel will be created.
 func (c *Client) Publish(routingKey string, body []byte, reply bool) (*amqp.Delivery, error) {
-	logger.Infof("Got request for %s", routingKey)
-
 	var responseChannel chan *amqp.Delivery
 
 	if reply {
@@ -221,30 +219,23 @@ func (c *Client) Publish(routingKey string, body []byte, reply bool) (*amqp.Deli
 		response: responseChannel,
 	}
 
-	logger.Infof("Putting on Go channel")
 	c.clientMessages <- request
 
-	logger.Infof("checking if reply is wanted")
-
 	if !reply {
-		logger.Info("reply not requested, closing channel")
 		return nil, nil
 	}
 
-	logger.Info("Waiting for reply")
 	delivery, ok := <-request.response
 	if !ok {
-		logger.Warnf("don't know yet...")
+		logger.Warnf("response channel was closed")
 	}
-
-	logger.Info("Got delivery, returning reply")
 
 	close(request.response)
 
 	return delivery, nil
 }
 
-func (c *Client) declareAndConsume(queueName string) <-chan amqp.Delivery {
+func (c *Client) declareAndConsume() <-chan amqp.Delivery {
 	q, err := c.consumerChannel.QueueDeclare(
 		c.replyToQueueName,
 		c.queueDeclare.durable,
