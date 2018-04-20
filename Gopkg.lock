@@ -2,6 +2,12 @@
 
 
 [[projects]]
+  name = "github.com/satori/go.uuid"
+  packages = ["."]
+  revision = "f58768cc1a7a7e77a3bd49e98cdd21419399b6a3"
+  version = "v1.2.0"
+
+[[projects]]
   branch = "master"
   name = "github.com/streadway/amqp"
   packages = ["."]
@@ -16,6 +22,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "b5d70e49c73d9c7f2d0a924f52d6198fcaa19f8f904614b64cec99ad53d0c537"
+  inputs-digest = "712ac83cad6e416b150f300853abbfe3672f8a6b5ca4ec1144689af4a49ad7ba"
   solver-name = "gps-cdcl"
   solver-version = 1

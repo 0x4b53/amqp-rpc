@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bombsimon/amqp-rpc/logger"
+	uuid "github.com/satori/go.uuid"
 	"github.com/streadway/amqp"
 )
 
@@ -35,23 +36,31 @@ type consumeSettings struct {
 // Client represents an AMQP client used within a RPC framework.
 // This client can be used to communicate with RPC servers.
 type Client struct {
-	Exchange        string
-	Timeout         time.Duration
-	connection      *amqp.Connection
-	consumerChannel *amqp.Channel
-	context         context.Context
-	dialconfig      amqp.Config
-	queueDeclare    queueDeclareSettings
-	consume         consumeSettings
+	Exchange         string
+	Timeout          time.Duration
+	clientMessages   chan *clientPublish
+	connection       *amqp.Connection
+	consumerChannel  *amqp.Channel
+	context          context.Context
+	dialconfig       amqp.Config
+	queueDeclare     queueDeclareSettings
+	replyToQueueName string
+	consume          consumeSettings
+}
+
+type clientPublish struct {
+	routingKey string
+	publishing *amqp.Publishing
+	response   chan *amqp.Delivery
 }
 
 func (c *Client) setDefaults() {
 	c.queueDeclare = queueDeclareSettings{
-		durable:         false,
-		dleteWhenUnused: true,
-		exclusive:       true,
-		noWait:          false,
-		args:            nil,
+		durable:          false,
+		deleteWhenUnused: true,
+		exclusive:        true,
+		noWait:           false,
+		args:             nil,
 	}
 
 	c.consume = consumeSettings{
@@ -76,7 +85,8 @@ func (c *Client) setDefaults() {
 // New will return a pointer to a new Client.
 func New(url string) *Client {
 	c := &Client{
-		context: context.Background(),
+		context:        context.Background(),
+		clientMessages: make(chan *clientPublish),
 	}
 
 	// Connect the client immediately
@@ -98,6 +108,54 @@ func New(url string) *Client {
 		}
 	}()
 
+	messages := c.declareAndConsume(c.replyToQueueName)
+
+	var queueChannels = make(map[string]chan *amqp.Delivery)
+
+	// Messages to publish
+	go func() {
+		for {
+			logger.Info("Waint for messages to publish")
+			request, _ := <-c.clientMessages
+
+			logger.Infof("Got message, publishing on %s", request.routingKey)
+
+			err := c.consumerChannel.Publish(
+				c.Exchange,
+				request.routingKey,
+				false, // mandatory
+				false, // immediate
+				*request.publishing,
+			)
+
+			if err != nil {
+				logger.Warn("could not publish message")
+				// Add back to channel?
+				continue
+			}
+
+			// Map a request correlation ID to a response channel
+			if request.response != nil {
+				logger.Info("Adding response to response loop channel")
+				queueChannels[request.publishing.CorrelationId] = request.response
+			}
+		}
+	}()
+
+	// Responses from messages published
+	go func() {
+		for {
+			logger.Info("Waiting for replys to respond")
+			response, _ := <-messages
+			logger.Infof("Got corrid '%s'", response.CorrelationId)
+
+			if replyChannel, ok := queueChannels[response.CorrelationId]; ok {
+				logger.Infof("Channel exist, adding response")
+				replyChannel <- &response
+			}
+		}
+	}()
+
 	return c
 }
 
@@ -114,6 +172,13 @@ func NewWithConnection(conn *amqp.Connection) *Client {
 	return c
 }
 
+// SetConnection will set a new conection on the client.
+// This should be used if the client was created with a connection
+// outside this package and that connection is lost.
+func (c *Client) SetConnection(conn *amqp.Connection) {
+	c.connection = conn
+}
+
 func (c *Client) connect(url string) {
 	for {
 		conn, err := amqp.DialConfig(url, c.dialconfig)
@@ -128,40 +193,49 @@ func (c *Client) connect(url string) {
 }
 
 func (c *Client) Publish(routingKey string, body []byte, reply bool) (*amqp.Delivery, error) {
-	messages, generatedQueue := c.declareAndConsume("")
+	logger.Infof("Got request for %s", routingKey)
 
-	err := c.consumerChannel.Publish(
-		c.Exchange,
-		routingKey,
-		false, // mandatory
-		false, // immediate
-		amqp.Publishing{
-			ContentType: "text/plain",
-			ReplyTo:     generatedQueue,
-			Body:        body,
-		},
-	)
+	var responseChannel chan *amqp.Delivery
 
-	if err != nil {
-		logger.Warn("could not publish message")
-		return nil, err
+	if reply {
+		responseChannel = make(chan *amqp.Delivery)
 	}
 
+	request := &clientPublish{
+		routingKey: routingKey,
+		publishing: &amqp.Publishing{
+			ContentType:   "text/plain",
+			ReplyTo:       c.replyToQueueName,
+			Body:          body,
+			CorrelationId: uuid.Must(uuid.NewV4()).String(),
+		},
+		response: responseChannel,
+	}
+
+	logger.Infof("Putting on Go channel")
+	c.clientMessages <- request
+
 	if !reply {
+		close(request.response)
 		return nil, nil
 	}
 
-	select {
-	case response, _ := <-messages:
-		return &response, nil
-	case <-time.After(c.Timeout):
-		return nil, ErrTimeout
+	logger.Info("Waiting for reply")
+	delivery, ok := <-request.response
+	if !ok {
+		logger.Warnf("don't know yet...")
 	}
+
+	logger.Info("Got delivery, returning reply")
+
+	close(request.response)
+
+	return delivery, nil
 }
 
-func (c *Client) declareAndConsume(queueName string) (<-chan amqp.Delivery, string) {
+func (c *Client) declareAndConsume(queueName string) <-chan amqp.Delivery {
 	q, err := c.consumerChannel.QueueDeclare(
-		queueName,
+		c.replyToQueueName,
 		c.queueDeclare.durable,
 		c.queueDeclare.deleteWhenUnused,
 		c.queueDeclare.exclusive,
@@ -187,5 +261,7 @@ func (c *Client) declareAndConsume(queueName string) (<-chan amqp.Delivery, stri
 		logger.Warnf("could not consume")
 	}
 
-	return messages, q.Name
+	c.replyToQueueName = q.Name
+
+	return messages
 }

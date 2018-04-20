@@ -187,14 +187,15 @@ func (s *RPCServer) responder(outCh *amqp.Channel) error {
 			return ErrResponseChClosed
 		}
 
-		logger.Infof("request processed, will publish response")
+		logger.Infof("request processed, will publish response on '%s' with corrid '%s'", response.delivery.ReplyTo, response.delivery.CorrelationId)
 		err := outCh.Publish(
 			"", // exchange
 			response.delivery.ReplyTo,
 			false, // mandatory
 			false, // immediate
 			amqp.Publishing{
-				Body: response.response,
+				Body:          response.response,
+				CorrelationId: response.delivery.CorrelationId,
 			},
 		)
 
