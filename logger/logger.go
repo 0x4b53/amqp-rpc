@@ -31,22 +31,22 @@ func SetWarnLogger(l Logger) {
 	warnLogger = l
 }
 
-// Info will lol
+// Info will log messages with severity info.
 func Info(v ...interface{}) {
 	infoLogger.Print(v...)
 }
 
-// Infof will lol
+// Infof will log formatted messages with severity info.
 func Infof(format string, v ...interface{}) {
 	infoLogger.Printf(format, v...)
 }
 
-// Warn will lol
+// Warn will log messages with severity warn.
 func Warn(v ...interface{}) {
 	warnLogger.Print(v...)
 }
 
-// Warnf will lol
+// Warnf will log formatte messages with severity warn.
 func Warnf(format string, v ...interface{}) {
 	warnLogger.Printf(format, v...)
 }
