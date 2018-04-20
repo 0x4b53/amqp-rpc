@@ -147,9 +147,8 @@ func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp
 
 	go func() {
 		logger.Infof("waiting for messages on queue '%s'", queue.Name)
-		for delivery := range deliveries {
-			logger.Info("got message")
 
+		for delivery := range deliveries {
 			var (
 				errMiddleware error
 				response      []byte
@@ -174,6 +173,7 @@ func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp
 				delivery: &delivery,
 			}
 		}
+
 		logger.Infof("stopped waiting for messages on queue '%s'", queue.Name)
 	}()
 
@@ -187,7 +187,6 @@ func (s *RPCServer) responder(outCh *amqp.Channel) error {
 			return ErrResponseChClosed
 		}
 
-		logger.Infof("request processed, will publish response on '%s' with corrid '%s'", response.delivery.ReplyTo, response.delivery.CorrelationId)
 		err := outCh.Publish(
 			"", // exchange
 			response.delivery.ReplyTo,
