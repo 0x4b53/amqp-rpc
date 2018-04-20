@@ -108,6 +108,27 @@ func New(url string) *Client {
 		}
 	}()
 
+	c.setupChannels()
+
+	return c
+}
+
+// NewWithConnection return a pointer to a new Client with
+// a connection created and monitored externally.
+func NewWithConnection(conn *amqp.Connection) *Client {
+	c := &Client{
+		context:        context.Background(),
+		connection:     conn,
+		clientMessages: make(chan *clientPublish),
+	}
+
+	c.setDefaults()
+	c.setupChannels()
+
+	return c
+}
+
+func (c *Client) setupChannels() {
 	messages := c.declareAndConsume(c.replyToQueueName)
 
 	var queueChannels = make(map[string]chan *amqp.Delivery)
@@ -116,7 +137,10 @@ func New(url string) *Client {
 	go func() {
 		for {
 			logger.Info("Waint for messages to publish")
-			request, _ := <-c.clientMessages
+			request, ok := <-c.clientMessages
+			if !ok {
+				logger.Info("Got message on closed channel")
+			}
 
 			logger.Infof("Got message, publishing on %s", request.routingKey)
 
@@ -155,21 +179,6 @@ func New(url string) *Client {
 			}
 		}
 	}()
-
-	return c
-}
-
-// NewWithConnection return a pointer to a new Client with
-// a connection created and monitored externally.
-func NewWithConnection(conn *amqp.Connection) *Client {
-	c := &Client{
-		context:    context.Background(),
-		connection: conn,
-	}
-
-	c.setDefaults()
-
-	return c
 }
 
 // SetConnection will set a new conection on the client.
@@ -215,8 +224,10 @@ func (c *Client) Publish(routingKey string, body []byte, reply bool) (*amqp.Deli
 	logger.Infof("Putting on Go channel")
 	c.clientMessages <- request
 
+	logger.Infof("checking if reply is wanted")
+
 	if !reply {
-		close(request.response)
+		logger.Info("reply not requested, closing channel")
 		return nil, nil
 	}
 
