@@ -8,6 +8,7 @@ import (
 
 	"github.com/streadway/amqp"
 
+	rpcconn "github.com/bombsimon/amqp-rpc/connection"
 	"github.com/bombsimon/amqp-rpc/logger"
 	"github.com/bombsimon/amqp-rpc/middleware"
 )
@@ -34,10 +35,19 @@ type responseObj struct {
 type handlerFunc func(context.Context, *amqp.Delivery) []byte
 
 // New will return a pointer to a new RPCServer.
-func New() *RPCServer {
-	return &RPCServer{
+func New(args ...interface{}) *RPCServer {
+	server := RPCServer{
 		handlers: map[string]handlerFunc{},
 	}
+
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case rpcconn.Certificates:
+			server.SetTLSConfig(v.TLSConfig())
+		}
+	}
+
+	return &server
 }
 
 // SetAMQPConfig sets the amqp.Config object to be used when dialing.

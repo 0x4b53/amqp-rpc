@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	rpcconn "github.com/bombsimon/amqp-rpc/connection"
 	"github.com/bombsimon/amqp-rpc/logger"
 	uuid "github.com/satori/go.uuid"
 	"github.com/streadway/amqp"
@@ -83,10 +84,34 @@ func (c *Client) setDefaults() {
 }
 
 // New will return a pointer to a new Client.
-func New(url string) *Client {
+// There are two ways to manage the connection that will be used
+// by the client (i.e. when using TLS).
+//
+// The first one is to use the Certificates type and just pass the
+// filenames to the client certificate, key and the server CA. If
+// this is done the function will handle the reading of the files.
+//
+// It is also possible to create a custom amqp.Config with whatever
+// configuration desired and that will be used as dial configuration
+// when connection to the message bus.
+func New(url string, args ...interface{}) *Client {
 	c := &Client{
 		context:        context.TODO(),
 		clientMessages: make(chan *clientPublish),
+	}
+
+	// Scan arguments for amqp.Config or Certificates config
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case amqp.Config:
+			c.dialconfig = v
+
+		case rpcconn.Certificates:
+			// Set the TLSClientConfig in the dialconfig
+			c.dialconfig = amqp.Config{
+				TLSClientConfig: v.TLSConfig(),
+			}
+		}
 	}
 
 	// Connect the client immediately
@@ -172,6 +197,9 @@ func (c *Client) setupChannels() {
 			// This should be true as long as the caller of publish requested a reply.
 			if replyChannel, ok := queueChannels[response.CorrelationId]; ok {
 				replyChannel <- &response
+
+				// Remove the mapping between correlation ID and reply channel.
+				delete(queueChannels, response.CorrelationId)
 			}
 		}
 	}()
