@@ -53,6 +53,7 @@ type clientPublish struct {
 	routingKey string
 	publishing *amqp.Publishing
 	response   chan *amqp.Delivery
+	errChan    chan error
 }
 
 func (c *Client) setDefaults() {
@@ -74,7 +75,9 @@ func (c *Client) setDefaults() {
 	}
 
 	c.Timeout = 2000 * time.Millisecond
+}
 
+func (c *Client) createConsumerChannel() {
 	ch, err := c.connection.Channel()
 	if err != nil {
 		logger.Warn("could not create consumer channel")
@@ -96,7 +99,10 @@ func (c *Client) setDefaults() {
 // when connection to the message bus.
 func New(url string, args ...interface{}) *Client {
 	c := &Client{
-		context:        context.TODO(),
+		context: context.TODO(),
+		dialconfig: amqp.Config{
+			Dial: rpcconn.DefaultDialer,
+		},
 		clientMessages: make(chan *clientPublish),
 	}
 
@@ -108,15 +114,14 @@ func New(url string, args ...interface{}) *Client {
 
 		case rpcconn.Certificates:
 			// Set the TLSClientConfig in the dialconfig
-			c.dialconfig = amqp.Config{
-				TLSClientConfig: v.TLSConfig(),
-			}
+			c.dialconfig.TLSClientConfig = v.TLSConfig()
 		}
 	}
 
 	// Connect the client immediately
 	c.connect(url)
 	c.setDefaults()
+	c.createConsumerChannel()
 
 	// Monitor the connection
 	go func() {
@@ -130,6 +135,7 @@ func New(url string, args ...interface{}) *Client {
 			logger.Warnf("connection lost with an error: %s", err.Error())
 
 			c.connect(url)
+			c.createConsumerChannel()
 		}
 	}()
 
@@ -148,6 +154,7 @@ func NewWithConnection(conn *amqp.Connection) *Client {
 	}
 
 	c.setDefaults()
+	c.createConsumerChannel()
 	c.setupChannels()
 
 	return c
@@ -167,6 +174,11 @@ func (c *Client) setupChannels() {
 				break
 			}
 
+			// Map a request correlation ID to a response channel
+			if request.response != nil {
+				queueChannels[request.publishing.CorrelationId] = request.response
+			}
+
 			err := c.consumerChannel.Publish(
 				c.Exchange,
 				request.routingKey,
@@ -177,14 +189,13 @@ func (c *Client) setupChannels() {
 
 			if err != nil {
 				logger.Warn("could not publish message")
+				request.errChan <- err
+
 				// Add back to channel?
 				continue
 			}
 
-			// Map a request correlation ID to a response channel
-			if request.response != nil {
-				queueChannels[request.publishing.CorrelationId] = request.response
-			}
+			close(request.errChan)
 		}
 	}()
 
@@ -245,9 +256,19 @@ func (c *Client) Publish(routingKey string, body []byte, reply bool) (*amqp.Deli
 			CorrelationId: uuid.Must(uuid.NewV4()).String(),
 		},
 		response: responseChannel,
+		errChan:  make(chan error),
 	}
 
 	c.clientMessages <- request
+
+	err, ok := <-request.errChan
+	if !ok {
+		// errChan closed - no errors occured
+	}
+
+	if err != nil {
+		return nil, err
+	}
 
 	if !reply {
 		return nil, nil
