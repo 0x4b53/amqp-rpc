@@ -301,54 +301,6 @@ func (c *Client) connect(url string) {
 	}
 }
 
-// Publish takes a string with a routing key, a byte slice with a body and a bool
-// set to true or false depending on if a response is desired.
-// Each request will create a channel on which the response will be added when
-// received. If no response is requested, no channel will be created.
-func (c *Client) Publish(routingKey string, body []byte, reply bool) (*amqp.Delivery, error) {
-	var responseChannel chan *amqp.Delivery
-
-	if reply {
-		responseChannel = make(chan *amqp.Delivery)
-	}
-
-	request := &publishingRequestMessages{
-		routingKey: routingKey,
-		publishing: &amqp.Publishing{
-			ContentType:   "text/plain",
-			ReplyTo:       c.replyToQueueName,
-			Body:          body,
-			CorrelationId: uuid.Must(uuid.NewV4()).String(),
-		},
-		response: responseChannel,
-		errChan:  make(chan error),
-	}
-
-	c.clientMessages <- request
-
-	err, ok := <-request.errChan
-	if !ok {
-		// errChan closed - no errors occurred.
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	if !reply {
-		return nil, nil
-	}
-
-	delivery, ok := <-request.response
-	if !ok {
-		logger.Warnf("response channel was closed")
-	}
-
-	close(request.response)
-
-	return delivery, nil
-}
-
 // Send will send a Request by using a amqp.Publishing.
 func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 	// Init a channel to receive responses.

@@ -23,7 +23,8 @@ func TestClient(t *testing.T) {
 	client := New("amqp://guest:guest@localhost:5672/")
 	NotEqual(t, client, nil)
 
-	response, err := client.Publish("myqueue", []byte("client testing"), true)
+	request := NewRequest("myqueue").WithStringBody("client testing")
+	response, err := client.Send(request)
 	Equal(t, err, nil)
 	Equal(t, response.Body, []byte("Got message: client testing"))
 }
@@ -33,7 +34,8 @@ func TestExistingConnection(t *testing.T) {
 	Equal(t, err, nil)
 
 	client := NewWithConnection(conn)
-	response, err := client.Publish("non-existing-queue", []byte("ignore reply"), false)
+	request := NewRequest("non-existing-queue").WithStringBody("ignore reply").WithResponse(false)
+	response, err := client.Send(request)
 	Equal(t, response, nil)
 	Equal(t, err, nil)
 }
@@ -57,12 +59,12 @@ func TestReconnect(t *testing.T) {
 	// Hook into the connection, disconnect
 	connection.GetConnection().Close()
 
-	_, err := client.Publish("myqueue", []byte("client testing"), true)
-	Equal(t, err != nil, true)
+	_, err := client.Send(NewRequest("myqueue").WithStringBody("client testing"))
+	NotEqual(t, err, nil)
 
 	// Ensure we're reconnected
 	time.Sleep(100 * time.Millisecond)
 
-	_, err = client.Publish("myqueue", []byte("client testing"), false)
+	_, err = client.Send(NewRequest("myqueue").WithStringBody("client testing").WithResponse(false))
 	Equal(t, err != nil, false)
 }

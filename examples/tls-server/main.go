@@ -45,7 +45,8 @@ func handleClientUsage(c context.Context, d *amqp.Delivery) []byte {
 		CA:   "client/cacert.pem",
 	})
 
-	response, err := client.Publish("hello_world", []byte("Sent with client"), true)
+	request := rpcclient.NewRequest("hello_world").WithStringBody("Sent with client")
+	response, err := client.Send(request)
 	if err != nil {
 		rpclogger.Warnf("Something went wrong: %s", err)
 		return []byte(err.Error())
