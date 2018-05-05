@@ -8,7 +8,7 @@ import (
 
 	"github.com/streadway/amqp"
 
-	rpcconn "github.com/bombsimon/amqp-rpc/connection"
+	"github.com/bombsimon/amqp-rpc/connection"
 	"github.com/bombsimon/amqp-rpc/logger"
 	"github.com/bombsimon/amqp-rpc/middleware"
 )
@@ -42,7 +42,7 @@ func New(args ...interface{}) *RPCServer {
 
 	for _, arg := range args {
 		switch v := arg.(type) {
-		case rpcconn.Certificates:
+		case connection.Certificates:
 			server.SetTLSConfig(v.TLSConfig())
 		}
 	}

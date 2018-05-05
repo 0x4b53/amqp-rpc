@@ -2,32 +2,19 @@ package server
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io/ioutil"
-	"log"
 	"net"
 	"testing"
 	"time"
 
 	"github.com/bombsimon/amqp-rpc/client"
-	"github.com/bombsimon/amqp-rpc/logger"
+	"github.com/bombsimon/amqp-rpc/connection"
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
 
-func noEcho() {
-	silentLogger := log.New(ioutil.Discard, "", log.LstdFlags)
-
-	logger.SetInfoLogger(silentLogger)
-	logger.SetWarnLogger(silentLogger)
-}
-
 func TestPublishReply(t *testing.T) {
-	noEcho()
-
-	s := New()
-	s.SetTLSConfig(new(tls.Config))
+	s := New(connection.Certificates{})
 
 	NotEqual(t, s.dialconfig.TLSClientConfig, nil)
 
@@ -41,7 +28,6 @@ func TestPublishReply(t *testing.T) {
 	reply, err := client.Publish("myqueue", []byte("this is a message"), true)
 
 	Equal(t, err, nil)
-
 	Equal(t, reply.Body, []byte("Got message: this is a message"))
 }
 
@@ -70,8 +56,6 @@ func testDialer(t *testing.T) (func(string, string) (net.Conn, error), func() ne
 }
 
 func TestReconnect(t *testing.T) {
-	noEcho()
-
 	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
 
 	Equal(t, err, nil)
