@@ -13,7 +13,7 @@ import (
 	. "gopkg.in/go-playground/assert.v1"
 )
 
-func TestPublishReply(t *testing.T) {
+func TestSendWithReply(t *testing.T) {
 	s := New(connection.Certificates{})
 
 	NotEqual(t, s.dialconfig.TLSClientConfig, nil)
@@ -24,8 +24,9 @@ func TestPublishReply(t *testing.T) {
 
 	go s.ListenAndServe("amqp://guest:guest@localhost:5672/")
 
-	client := client.New("amqp://guest:guest@localhost:5672/")
-	reply, err := client.Publish("myqueue", []byte("this is a message"), true)
+	c := client.New("amqp://guest:guest@localhost:5672/")
+	request := client.NewRequest("myqueue").WithStringBody("this is a message")
+	reply, err := c.Send(request)
 
 	Equal(t, err, nil)
 	Equal(t, reply.Body, []byte("Got message: this is a message"))
@@ -86,11 +87,12 @@ func TestReconnect(t *testing.T) {
 
 	// Sleep a bit to ensure server is started.
 	time.Sleep(50 * time.Millisecond)
-	client := client.New("amqp://guest:guest@localhost:5672/")
+	c := client.New("amqp://guest:guest@localhost:5672/")
 
 	for i := 0; i < 2; i++ {
 		message := []byte(fmt.Sprintf("this is message %v", i))
-		reply, err := client.Publish("myqueue", message, true)
+		request := client.NewRequest("myqueue").WithBody(message)
+		reply, err := c.Send(request)
 
 		Equal(t, err, nil)
 

@@ -7,9 +7,10 @@ import (
 )
 
 func main() {
-	client := client.New("amqp://guest:guest@localhost:5672/")
+	c := client.New("amqp://guest:guest@localhost:5672/")
 
-	response, err := client.Publish("hello_world", []byte("Sent with a client"), true)
+	request := client.NewRequest("hello_world").WithStringBody("Sent with a client")
+	response, err := c.Send(request)
 	if err != nil {
 		fmt.Println(err)
 	}
