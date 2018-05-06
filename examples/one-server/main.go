@@ -5,17 +5,17 @@ import (
 	"fmt"
 
 	"github.com/bombsimon/amqp-rpc/logger"
-	rmq_server "github.com/bombsimon/amqp-rpc/server"
+	"github.com/bombsimon/amqp-rpc/server"
 
 	"github.com/streadway/amqp"
 )
 
 func main() {
-	server := rmq_server.New()
+	s := server.New("amqp://guest:guest@localhost:5672/")
 
-	server.AddHandler("hello_world", handleHelloWorld)
+	s.AddHandler("hello_world", handleHelloWorld)
 
-	server.ListenAndServe("amqp://guest:guest@localhost:5672/")
+	s.ListenAndServe()
 }
 
 func handleHelloWorld(c context.Context, d *amqp.Delivery) []byte {
