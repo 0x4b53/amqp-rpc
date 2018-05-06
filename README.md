@@ -25,14 +25,14 @@ into the consumption of amqp messages. All you need to do to start consuming
 messages published to `routing_key` looks like this:
 
 ```go
-s := server.New()
+s := server.New("amqp://guest:guest@localhost:5672")
 s.AddHandler("routing_key", func(c context.Context, d *amqp.Delivery) []byte {
     fmt.Println(d.Body, d.Headers)
 
     return []byte("Handled")
 })
 
-s.ListenAndServe("amqp://guest:guest@localhost:5672")
+s.ListenAndServe()
 ```
 
 #### Middlewares
@@ -56,8 +56,8 @@ noEmptyAuthHeader := func(rk string, c context.Context, d *amqp.Delivery) error 
     return nil
 }
 
-s := server.New()
-s.ListenAndServe("amqp://guest:guest@localhost:5672", noEmptyAuthHeader)
+s := server.New("amqp://guest:guest@localhost:5672").AddMiddleware(noEmptyAuthHeader)
+s.ListenAndServe()
 ```
 
 ### Client
@@ -75,13 +75,8 @@ published as fast as possible and also, if requested, the reply.
 ```go
 c := client.New("amqp://guest:guest@localhost:5672")
 
-var (
-    wantReply  bool   = true
-    routingKey string = "endpoint"
-    body              = []byte("My body")
-)
-
-response, err := c.Publish(routingKey, body, wantReply)
+request := client.NewRequest("my_endpoint").WithStringBody("My body").WithResponse(true)
+response, err := c.Send(request)
 if err != nil {
     logger.Warn("Something went wrong", err)
 }
@@ -147,8 +142,13 @@ cert := connection.Certificates{
 
 // Now we can pass this to New() and connect our server or client with TLS.
 uri := "amqps://guest:guest@localhost:5671"
-s := server.New(cert)
-s.ListenAndServe(uri)
+dialConfig := amqp.Config{
+    TLSClientConfig: cert.TLSConfig(),
+}
+
+s := server.New(uri).WithDialConfig(dialConfig)
+
+s.ListenAndServe()
 
 c := client.New(uri, cert)
 ```
