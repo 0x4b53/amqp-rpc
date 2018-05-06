@@ -11,14 +11,16 @@ import (
 )
 
 func TestRequest(t *testing.T) {
-	server := server.New()
+	var url = "amqp://guest:guest@localhost:5672/"
+
+	server := server.New(url)
 	server.AddHandler("myqueue", func(ctx context.Context, d *amqp.Delivery) []byte {
 		return []byte(fmt.Sprintf("Got message: %s", d.Body))
 	})
 
-	go server.ListenAndServe("amqp://guest:guest@localhost:5672/")
+	go server.ListenAndServe()
 
-	client := New("amqp://guest:guest@localhost:5672/")
+	client := New(url)
 	NotEqual(t, client, nil)
 
 	// Test simple form.

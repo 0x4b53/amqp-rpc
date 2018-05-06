@@ -6,49 +6,57 @@ import (
 	"log"
 	"os"
 
-	rpcclient "github.com/bombsimon/amqp-rpc/client"
-	rpcconn "github.com/bombsimon/amqp-rpc/connection"
-	rpclogger "github.com/bombsimon/amqp-rpc/logger"
-	rpcserver "github.com/bombsimon/amqp-rpc/server"
+	"github.com/bombsimon/amqp-rpc/client"
+	"github.com/bombsimon/amqp-rpc/connection"
+	"github.com/bombsimon/amqp-rpc/logger"
+	"github.com/bombsimon/amqp-rpc/server"
 
 	"github.com/streadway/amqp"
 )
 
+var url = "amqp://guest:guest@localhost:5672/"
+
 func main() {
 	customLogger := log.New(os.Stdout, "[amqp-rpc]", log.LstdFlags)
-	rpclogger.SetInfoLogger(customLogger)
-	rpclogger.SetWarnLogger(customLogger)
+	logger.SetInfoLogger(customLogger)
+	logger.SetWarnLogger(customLogger)
 
-	server := rpcserver.New(rpcconn.Certificates{
+	cert := connection.Certificates{
 		Cert: "server.crt",
 		Key:  "server.key",
+	}
+
+	s := server.New(url).WithDialConfig(amqp.Config{
+		TLSClientConfig: cert.TLSConfig(),
 	})
 
-	server.AddHandler("hello_world", handleHelloWorld)
-	server.AddHandler("client_usage", handleClientUsage)
+	s.AddHandler("hello_world", handleHelloWorld)
+	s.AddHandler("client_usage", handleClientUsage)
 
-	server.ListenAndServe("amqps://guest:guest@localhost:5671/")
+	s.ListenAndServe()
 }
 
-func handleHelloWorld(c context.Context, d *amqp.Delivery) []byte {
-	rpclogger.Infof("Handling 'Hello world' request")
+func handleHelloWorld(ctx context.Context, d *amqp.Delivery) []byte {
+	logger.Infof("Handling 'Hello world' request")
 
 	return []byte(fmt.Sprintf("Got message: %s", d.Body))
 }
 
-func handleClientUsage(c context.Context, d *amqp.Delivery) []byte {
-	rpclogger.Infof("Handling 'Client usage' request")
+func handleClientUsage(ctx context.Context, d *amqp.Delivery) []byte {
+	logger.Infof("Handling 'Client usage' request")
 
-	client := rpcclient.New("amqps://guest:guest@localhost:5671/", rpcconn.Certificates{
+	cert := connection.Certificates{
 		Cert: "client/cert.pem",
 		Key:  "client/key.pem",
 		CA:   "client/cacert.pem",
-	})
+	}
 
-	request := rpcclient.NewRequest("hello_world").WithStringBody("Sent with client")
-	response, err := client.Send(request)
+	c := client.New("amqps://guest:guest@localhost:5671/", cert)
+
+	request := client.NewRequest("hello_world").WithStringBody("Sent with client")
+	response, err := c.Send(request)
 	if err != nil {
-		rpclogger.Warnf("Something went wrong: %s", err)
+		logger.Warnf("Something went wrong: %s", err)
 		return []byte(err.Error())
 	}
 

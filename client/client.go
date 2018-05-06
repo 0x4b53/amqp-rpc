@@ -16,25 +16,6 @@ var (
 	ErrTimeout = errors.New("request timed out")
 )
 
-type queueDeclareSettings struct {
-	durable          bool
-	deleteWhenUnused bool
-	exclusive        bool
-	noWait           bool
-	args             amqp.Table
-}
-
-type consumeSettings struct {
-	consumer         string
-	autoAck          bool
-	exclusive        bool
-	noLocal          bool
-	noWait           bool
-	args             amqp.Table
-	publishMandatory bool
-	publishImmediate bool
-}
-
 // Client represents an AMQP client used within a RPC framework.
 // This client can be used to communicate with RPC servers.
 type Client struct {
@@ -72,15 +53,23 @@ type Client struct {
 	// connection/dialer.go.
 	dialconfig amqp.Config
 
-	// queueDeclare is configuration used when declaring a RabbitMQ queue.
-	queueDeclare queueDeclareSettings
+	// queueDeclareSettings is configuration used when declaring a RabbitMQ queue.
+	queueDeclareSettings connection.QueueDeclareSettings
 
-	// consume is configuration used when consuming from the message bus.
-	consume consumeSettings
+	// consumeSettings is configuration used when consuming from the message bus.
+	consumeSettings connection.ConsumeSettings
+
+	// publishSettings is the configuration used when publishing a message with the client
+	publishSettings connection.PublishSettings
 
 	// replyToQueueName can be used to avoid generating queue names on the message
-	//bus and use a pre defined name throughout the usage of a client.
+	// bus and use a pre defined name throughout the usage of a client.
 	replyToQueueName string
+
+	// Connected is the state of the client which will be true if the client has
+	// an active connection to the message bus. When a client is disconnected
+	// it will try to reconnect until connected.
+	connected bool
 }
 
 // publishingRequestMessages is a type that holds information about each request
@@ -95,21 +84,26 @@ type publishingRequestMessages struct {
 }
 
 func (c *Client) setDefaults() {
-	c.queueDeclare = queueDeclareSettings{
-		durable:          false,
-		deleteWhenUnused: true,
-		exclusive:        true,
-		noWait:           false,
-		args:             nil,
+	c.queueDeclareSettings = connection.QueueDeclareSettings{
+		Durable:          false,
+		DeleteWhenUnused: true,
+		Exclusive:        true,
+		NoWait:           false,
+		Args:             nil,
 	}
 
-	c.consume = consumeSettings{
-		consumer:  "",
-		autoAck:   true,
-		exclusive: false,
-		noLocal:   false,
-		noWait:    false,
-		args:      nil,
+	c.consumeSettings = connection.ConsumeSettings{
+		Consumer:  "",
+		AutoAck:   true,
+		Exclusive: false,
+		NoLocal:   false,
+		NoWait:    false,
+		Args:      nil,
+	}
+
+	c.publishSettings = connection.PublishSettings{
+		Mandatory: false,
+		Immediate: false,
 	}
 
 	c.Timeout = 2000 * time.Millisecond
@@ -160,6 +154,9 @@ func New(url string, args ...interface{}) *Client {
 	// Connect the client immediately.
 	c.connect(url)
 
+	// Watch for connection notificates in a separate go routinge.
+	go c.monitorConnection(url)
+
 	// Set default values to use when crearing channels
 	// and consumers.
 	c.setDefaults()
@@ -167,9 +164,6 @@ func New(url string, args ...interface{}) *Client {
 	// Create the consumer channel from the connection
 	// set when connecting to the message bus.
 	c.createConsumerChannel()
-
-	// Watch for connection notificates in a separate go routinge.
-	go c.monitorConnection(url)
 
 	c.setupChannels()
 
@@ -189,21 +183,6 @@ func (c *Client) monitorConnection(url string) {
 		c.connect(url)
 		c.createConsumerChannel()
 	}
-}
-
-// NewWithConnection return a pointer to a new Client with
-// a connection created and monitored externally.
-func NewWithConnection(conn *amqp.Connection) *Client {
-	c := &Client{
-		connection:     conn,
-		clientMessages: make(chan *publishingRequestMessages),
-	}
-
-	c.setDefaults()
-	c.createConsumerChannel()
-	c.setupChannels()
-
-	return c
 }
 
 func (c *Client) setupChannels() {
@@ -240,8 +219,8 @@ func (c *Client) setupChannels() {
 			err := c.consumerChannel.Publish(
 				c.Exchange,
 				request.routingKey,
-				c.consume.publishMandatory,
-				c.consume.publishImmediate,
+				c.publishSettings.Mandatory,
+				c.publishSettings.Immediate,
 				*request.publishing,
 			)
 
@@ -279,13 +258,6 @@ func (c *Client) setupChannels() {
 			}
 		}
 	}()
-}
-
-// SetConnection will set a new connection on the client.
-// This should be used if the client was created with a connection
-// outside this package and that connection is lost.
-func (c *Client) SetConnection(conn *amqp.Connection) {
-	c.connection = conn
 }
 
 func (c *Client) connect(url string) {
@@ -354,11 +326,11 @@ func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 func (c *Client) declareAndConsume() <-chan amqp.Delivery {
 	q, err := c.consumerChannel.QueueDeclare(
 		c.replyToQueueName,
-		c.queueDeclare.durable,
-		c.queueDeclare.deleteWhenUnused,
-		c.queueDeclare.exclusive,
-		c.queueDeclare.noWait,
-		c.queueDeclare.args,
+		c.queueDeclareSettings.Durable,
+		c.queueDeclareSettings.DeleteWhenUnused,
+		c.queueDeclareSettings.Exclusive,
+		c.queueDeclareSettings.NoWait,
+		c.queueDeclareSettings.Args,
 	)
 
 	if err != nil {
@@ -367,12 +339,12 @@ func (c *Client) declareAndConsume() <-chan amqp.Delivery {
 
 	messages, err := c.consumerChannel.Consume(
 		q.Name,
-		c.consume.consumer,
-		c.consume.autoAck,
-		c.consume.exclusive,
-		c.consume.noLocal,
-		c.consume.noWait,
-		c.consume.args,
+		c.consumeSettings.Consumer,
+		c.consumeSettings.AutoAck,
+		c.consumeSettings.Exclusive,
+		c.consumeSettings.NoLocal,
+		c.consumeSettings.NoWait,
+		c.consumeSettings.Args,
 	)
 
 	if err != nil {

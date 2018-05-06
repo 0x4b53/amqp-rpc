@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"time"
 
@@ -18,46 +17,84 @@ var (
 	ErrResponseChClosed = errors.New("Channel closed")
 )
 
-// RPCServer represents a RabbitMQ RPC server.
-// The server holds a map of all handlers.
+// handlerFunc is the function that handles all request based on the routing key.
+type handlerFunc func(context.Context, *amqp.Delivery) []byte
+
+// RPCServer represents an AMQP server used within the RPC framework.
+// The server uses handlers to map a routing key to a handler function.
 type RPCServer struct {
-	handlers    map[string]handlerFunc
+	// url is the URL where the server should dial to start subscribing.
+	url string
+
+	// handlers is a map where the routing key is used as map key
+	// and the value is a function of type handlerFunc.
+	handlers map[string]handlerFunc
+
+	// middlewares is a list of functions which will be executed
+	// before calling the handler for a specific endpoint.
 	middlewares []middleware.ServerMiddleware
-	responses   chan responseObj
-	dialconfig  amqp.Config
+
+	// Every processed request will be responded to in a separate
+	// go routine. The server holds a chanel on which all the responses
+	// from a handler func is added.
+	responses chan processedRequest
+
+	// dialconfig is a amqp.Config which holds information about the connection
+	// such as authentication, TLS configuration, and a dailer which is a
+	// function used to obtain a connection.
+	// By default the dialconfig will include a dail function implemented in
+	// connection/dialer.go.
+	dialconfig amqp.Config
+
+	// queueDeclareSettings is configuration used when declaring a RabbitMQ queue.
+	queueDeclareSettings connection.QueueDeclareSettings
+
+	// consumeSetting is configuration used when consuming from the message bus.
+	consumeSettings connection.ConsumeSettings
+
+	// publishSettings is the configuration used when publishing a message with the client
+	publishSettings connection.PublishSettings
 }
 
-type responseObj struct {
+// processedRequest is used to add the response from a handler func combined
+// with a amqp.Delivery. The reasone we need to combine those is that we
+// reply to each request in a separate go routine and the delivery is required
+// to determine on which queue to reply.
+type processedRequest struct {
 	delivery *amqp.Delivery
 	response []byte
 }
 
-type handlerFunc func(context.Context, *amqp.Delivery) []byte
-
 // New will return a pointer to a new RPCServer.
-func New(args ...interface{}) *RPCServer {
+func New(url string) *RPCServer {
 	server := RPCServer{
-		handlers: map[string]handlerFunc{},
-	}
-
-	for _, arg := range args {
-		switch v := arg.(type) {
-		case connection.Certificates:
-			server.SetTLSConfig(v.TLSConfig())
-		}
+		url:         url,
+		handlers:    map[string]handlerFunc{},
+		middlewares: []middleware.ServerMiddleware{},
+		dialconfig: amqp.Config{
+			Dial: connection.DefaultDialer,
+		},
+		queueDeclareSettings: connection.QueueDeclareSettings{},
+		consumeSettings:      connection.ConsumeSettings{},
+		publishSettings:      connection.PublishSettings{},
 	}
 
 	return &server
 }
 
-// SetAMQPConfig sets the amqp.Config object to be used when dialing.
-func (s *RPCServer) SetAMQPConfig(config amqp.Config) {
-	s.dialconfig = config
+// WithDialConfig sets the dial config used for the server.
+func (s *RPCServer) WithDialConfig(c amqp.Config) *RPCServer {
+	s.dialconfig = c
+
+	return s
 }
 
-// SetTLSConfig sets the tls.Config on the AMQP config field TLSClientConfig
-func (s *RPCServer) SetTLSConfig(c *tls.Config) {
-	s.dialconfig.TLSClientConfig = c
+// AddMiddleware will add a ServerMiddleware to the list of middlewares to be
+// triggered before the handle func for each request.
+func (s *RPCServer) AddMiddleware(m middleware.ServerMiddleware) *RPCServer {
+	s.middlewares = append(s.middlewares, m)
+
+	return s
 }
 
 // AddHandler adds a new handler to the RPC server.
@@ -68,12 +105,11 @@ func (s *RPCServer) AddHandler(queueName string, handler handlerFunc) {
 // ListenAndServe will dial the RabbitMQ message bus, set up
 // all the channels, consume from all RPC server queues and monitor
 // to connection to ensure the server is always connected.
-func (s *RPCServer) ListenAndServe(url string, middlewares ...middleware.ServerMiddleware) {
-	s.middlewares = middlewares
-	s.responses = make(chan responseObj)
+func (s *RPCServer) ListenAndServe() {
+	s.responses = make(chan processedRequest)
 
 	for {
-		err := s.listenAndServe(url)
+		err := s.listenAndServe()
 		if err != nil {
 			logger.Warnf("got error: %s, will reconnect in %d second(s)", err, 1)
 			time.Sleep(500 * time.Millisecond)
@@ -85,10 +121,10 @@ func (s *RPCServer) ListenAndServe(url string, middlewares ...middleware.ServerM
 	}
 }
 
-func (s *RPCServer) listenAndServe(url string) error {
-	logger.Infof("staring listener: %s", url)
+func (s *RPCServer) listenAndServe() error {
+	logger.Infof("staring listener: %s", s.url)
 
-	conn, err := amqp.DialConfig(url, s.dialconfig)
+	conn, err := amqp.DialConfig(s.url, s.dialconfig)
 	if err != nil {
 		return err
 	}
@@ -129,12 +165,12 @@ func (s *RPCServer) listenAndServe(url string) error {
 
 func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp.Channel) error {
 	queue, err := inputCh.QueueDeclare(
-		queueName, // name
-		false,     // durable
-		false,     // delete when usused
-		false,     // exclusive
-		false,     // no-wait
-		nil,       // arguments
+		queueName,
+		s.queueDeclareSettings.Durable,
+		s.queueDeclareSettings.DeleteWhenUnused,
+		s.queueDeclareSettings.Exclusive,
+		s.queueDeclareSettings.NoWait,
+		s.queueDeclareSettings.Args,
 	)
 
 	if err != nil {
@@ -142,13 +178,13 @@ func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp
 	}
 
 	deliveries, err := inputCh.Consume(
-		queue.Name, // queue
-		"",         // consumer
-		false,      // autoAck
-		false,      // exclusive
-		false,      // noLocal
-		false,      // noWait
-		nil,        // args
+		queue.Name,
+		s.consumeSettings.Consumer,
+		s.consumeSettings.AutoAck,
+		s.consumeSettings.Exclusive,
+		s.consumeSettings.NoLocal,
+		s.consumeSettings.NoWait,
+		s.consumeSettings.Args,
 	)
 
 	if err != nil {
@@ -178,7 +214,7 @@ func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp
 
 			delivery.Ack(false)
 
-			s.responses <- responseObj{
+			s.responses <- processedRequest{
 				response: response,
 				delivery: &delivery,
 			}
@@ -200,8 +236,8 @@ func (s *RPCServer) responder(outCh *amqp.Channel) error {
 		err := outCh.Publish(
 			"", // exchange
 			response.delivery.ReplyTo,
-			false, // mandatory
-			false, // immediate
+			s.publishSettings.Mandatory,
+			s.publishSettings.Immediate,
 			amqp.Publishing{
 				Body:          response.response,
 				CorrelationId: response.delivery.CorrelationId,
