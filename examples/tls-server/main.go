@@ -36,13 +36,13 @@ func main() {
 	s.ListenAndServe()
 }
 
-func handleHelloWorld(ctx context.Context, d *amqp.Delivery) []byte {
+func handleHelloWorld(ctx context.Context, d amqp.Delivery) []byte {
 	logger.Infof("Handling 'Hello world' request")
 
 	return []byte(fmt.Sprintf("Got message: %s", d.Body))
 }
 
-func handleClientUsage(ctx context.Context, d *amqp.Delivery) []byte {
+func handleClientUsage(ctx context.Context, d amqp.Delivery) []byte {
 	logger.Infof("Handling 'Client usage' request")
 
 	cert := connection.Certificates{

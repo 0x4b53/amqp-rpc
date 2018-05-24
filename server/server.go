@@ -18,7 +18,7 @@ var (
 )
 
 // handlerFunc is the function that handles all request based on the routing key.
-type handlerFunc func(context.Context, *amqp.Delivery) []byte
+type handlerFunc func(context.Context, amqp.Delivery) []byte
 
 // RPCServer represents an AMQP server used within the RPC framework.
 // The server uses handlers to map a routing key to a handler function.
@@ -61,7 +61,7 @@ type RPCServer struct {
 // reply to each request in a separate go routine and the delivery is required
 // to determine on which queue to reply.
 type processedRequest struct {
-	delivery *amqp.Delivery
+	delivery amqp.Delivery
 	response []byte
 }
 
@@ -71,8 +71,8 @@ func New(url string) *RPCServer {
 		url:         url,
 		handlers:    map[string]handlerFunc{},
 		middlewares: []middleware.ServerMiddleware{},
-		dialconfig: amqp.Config{
-			Dial: connection.DefaultDialer,
+		dialconfig:  amqp.Config{
+			// Dial: connection.DefaultDialer,
 		},
 		queueDeclareSettings: connection.QueueDeclareSettings{},
 		consumeSettings:      connection.ConsumeSettings{},
@@ -80,6 +80,10 @@ func New(url string) *RPCServer {
 	}
 
 	return &server
+}
+
+func Close() {
+
 }
 
 // WithDialConfig sets the dial config used for the server.
@@ -111,18 +115,18 @@ func (s *RPCServer) ListenAndServe() {
 	for {
 		err := s.listenAndServe()
 		if err != nil {
-			logger.Warnf("got error: %s, will reconnect in %d second(s)", err, 1)
+			logger.Warnf("server: got error: %s, will reconnect in %d second(s)", err, 0.5)
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
 
-		logger.Info("listener exiting gracefully")
+		logger.Info("server: listener exiting gracefully")
 		break
 	}
 }
 
 func (s *RPCServer) listenAndServe() error {
-	logger.Infof("staring listener: %s", s.url)
+	logger.Infof("server: staring listener: %s", s.url)
 
 	conn, err := amqp.DialConfig(s.url, s.dialconfig)
 	if err != nil {
@@ -192,9 +196,10 @@ func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp
 	}
 
 	go func() {
-		logger.Infof("waiting for messages on queue '%s'", queue.Name)
+		logger.Infof("server: waiting for messages on queue '%s'", queue.Name)
 
 		for delivery := range deliveries {
+			logger.Infof("server: got delivery on queue %v correlation id %v", queue.Name, delivery.CorrelationId)
 			var (
 				errMiddleware error
 				response      []byte
@@ -209,18 +214,18 @@ func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp
 			}
 
 			if errMiddleware == nil {
-				response = handler(context.TODO(), &delivery)
+				response = handler(context.TODO(), delivery)
 			}
 
 			delivery.Ack(false)
 
 			s.responses <- processedRequest{
 				response: response,
-				delivery: &delivery,
+				delivery: delivery,
 			}
 		}
 
-		logger.Infof("stopped waiting for messages on queue '%s'", queue.Name)
+		logger.Infof("server: stopped waiting for messages on queue '%s'", queue.Name)
 	}()
 
 	return nil
@@ -245,9 +250,15 @@ func (s *RPCServer) responder(outCh *amqp.Channel) error {
 		)
 
 		if err != nil {
-			logger.Warnf("could not publish response, will retry later")
+			logger.Warnf("server: could not publish response, will retry later")
 			s.responses <- response
 			return err
 		}
+
+		logger.Infof(
+			"server: successfully published response %v to %v",
+			response.delivery.CorrelationId,
+			response.delivery.ReplyTo,
+		)
 	}
 }
