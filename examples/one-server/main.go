@@ -18,7 +18,7 @@ func main() {
 	s.ListenAndServe()
 }
 
-func handleHelloWorld(c context.Context, d *amqp.Delivery) []byte {
+func handleHelloWorld(c context.Context, d amqp.Delivery) []byte {
 	logger.Infof("Handling 'Hello world' request")
 
 	return []byte(fmt.Sprintf("Got message: %s", d.Body))

@@ -8,6 +8,7 @@ import (
 
 	"github.com/bombsimon/amqp-rpc/connection"
 	"github.com/bombsimon/amqp-rpc/server"
+	"github.com/bombsimon/amqp-rpc/test_helpers"
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
@@ -16,7 +17,7 @@ var url = "amqp://guest:guest@localhost:5672/"
 
 func TestClient(t *testing.T) {
 	server := server.New(url)
-	server.AddHandler("myqueue", func(ctx context.Context, d *amqp.Delivery) []byte {
+	server.AddHandler("myqueue", func(ctx context.Context, d amqp.Delivery) []byte {
 		return []byte(fmt.Sprintf("Got message: %s", d.Body))
 	})
 
@@ -44,11 +45,14 @@ func TestClientConfig(t *testing.T) {
 }
 
 func TestReconnect(t *testing.T) {
-	client := New(url)
+	dialer, connections := test_helpers.TestDialer(t)
+	client := New(url, amqp.Config{Dial: dialer})
 	NotEqual(t, client, nil)
 
 	// Hook into the connection, disconnect
-	connection.GetConnection().Close()
+	time.Sleep(100 * time.Millisecond)
+	conn, _ := <-connections
+	conn.Close()
 
 	_, err := client.Send(NewRequest("myqueue").WithStringBody("client testing"))
 	NotEqual(t, err, nil)

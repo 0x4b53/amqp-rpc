@@ -14,7 +14,7 @@ func TestRequest(t *testing.T) {
 	var url = "amqp://guest:guest@localhost:5672/"
 
 	server := server.New(url)
-	server.AddHandler("myqueue", func(ctx context.Context, d *amqp.Delivery) []byte {
+	server.AddHandler("myqueue", func(ctx context.Context, d amqp.Delivery) []byte {
 		return []byte(fmt.Sprintf("Got message: %s", d.Body))
 	})
 

@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"testing"
 	"time"
 
 	"github.com/bombsimon/amqp-rpc/client"
 	"github.com/bombsimon/amqp-rpc/connection"
+	"github.com/bombsimon/amqp-rpc/test_helpers"
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
@@ -20,13 +20,12 @@ func TestSendWithReply(t *testing.T) {
 	cert := connection.Certificates{}
 
 	s := New(url).WithDialConfig(amqp.Config{
-		Dial:            connection.DefaultDialer,
 		TLSClientConfig: cert.TLSConfig(),
 	})
 
 	NotEqual(t, s.dialconfig.TLSClientConfig, nil)
 
-	s.AddHandler("myqueue", func(ctx context.Context, d *amqp.Delivery) []byte {
+	s.AddHandler("myqueue", func(ctx context.Context, d amqp.Delivery) []byte {
 		return []byte(fmt.Sprintf("Got message: %s", d.Body))
 	})
 
@@ -51,11 +50,11 @@ func TestMiddleware(t *testing.T) {
 
 	s := New(url).AddMiddleware(mw)
 
-	s.AddHandler("allowed", func(ctx context.Context, d *amqp.Delivery) []byte {
+	s.AddHandler("allowed", func(ctx context.Context, d amqp.Delivery) []byte {
 		return []byte(fmt.Sprintf("this is allowed"))
 	})
 
-	s.AddHandler("denied", func(ctx context.Context, d *amqp.Delivery) []byte {
+	s.AddHandler("denied", func(ctx context.Context, d amqp.Delivery) []byte {
 		return []byte(fmt.Sprintf("this is not allowed"))
 	})
 
@@ -93,52 +92,29 @@ func TestReconnect(t *testing.T) {
 		false, // noWait
 	)
 
-	dialer, getNetConn := testDialer(t)
+	dialer, connections := test_helpers.TestDialer(t)
 	s := New(url).WithDialConfig(amqp.Config{Dial: dialer})
 
-	s.AddHandler("myqueue", func(ctx context.Context, d *amqp.Delivery) []byte {
+	s.AddHandler("myqueue", func(ctx context.Context, d amqp.Delivery) []byte {
+		time.Sleep(500 * time.Millisecond)
 		return []byte(fmt.Sprintf("Got message: %s", d.Body))
 	})
 
 	go s.ListenAndServe()
 
 	// Sleep a bit to ensure server is started.
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	c := client.New(url)
 
 	for i := 0; i < 2; i++ {
 		message := []byte(fmt.Sprintf("this is message %v", i))
 		request := client.NewRequest("myqueue").WithBody(message)
 		reply, err := c.Send(request)
-
 		Equal(t, err, nil)
 
-		getNetConn().Close()
+		conn := <-connections
+		conn.Close()
 
 		Equal(t, reply.Body, []byte(fmt.Sprintf("Got message: %s", message)))
 	}
-}
-
-func testDialer(t *testing.T) (func(string, string) (net.Conn, error), func() net.Conn) {
-	var conn net.Conn
-
-	return func(network, addr string) (net.Conn, error) {
-			var err error
-
-			conn, err = net.DialTimeout(network, addr, 2*time.Second)
-			if err != nil {
-				return nil, err
-			}
-			// Heartbeating hasn't started yet, don't stall forever on a dead server.
-			// A deadline is set for TLS and AMQP handshaking. After AMQP is established,
-			// the deadline is cleared in openComplete.
-			if err = conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
-				return nil, err
-			}
-
-			return conn, nil
-		}, func() net.Conn {
-			return conn
-		}
-
 }
