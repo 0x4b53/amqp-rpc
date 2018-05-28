@@ -8,7 +8,7 @@ import (
 
 	"github.com/bombsimon/amqp-rpc/connection"
 	"github.com/bombsimon/amqp-rpc/server"
-	"github.com/bombsimon/amqp-rpc/test_helpers"
+	"github.com/bombsimon/amqp-rpc/testhelpers"
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
@@ -45,7 +45,7 @@ func TestClientConfig(t *testing.T) {
 }
 
 func TestReconnect(t *testing.T) {
-	dialer, connections := test_helpers.TestDialer(t)
+	dialer, connections := testhelpers.TestDialer(t)
 	client := New(url, amqp.Config{Dial: dialer})
 	NotEqual(t, client, nil)
 

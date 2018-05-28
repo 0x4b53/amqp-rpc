@@ -17,49 +17,52 @@ var (
 	ErrResponseChClosed = errors.New("Channel closed")
 )
 
-// handlerFunc is the function that handles all request based on the routing key.
+// handlerFunc is the function that handles all request based on the routing
+// key.
 type handlerFunc func(context.Context, amqp.Delivery) []byte
 
-// RPCServer represents an AMQP server used within the RPC framework.
-// The server uses handlers to map a routing key to a handler function.
+// RPCServer represents an AMQP server used within the RPC framework. The
+// server uses handlers to map a routing key to a handler function.
 type RPCServer struct {
 	// url is the URL where the server should dial to start subscribing.
 	url string
 
-	// handlers is a map where the routing key is used as map key
-	// and the value is a function of type handlerFunc.
+	// handlers is a map where the routing key is used as map key and the value
+	// is a function of type handlerFunc.
 	handlers map[string]handlerFunc
 
-	// middlewares is a list of functions which will be executed
-	// before calling the handler for a specific endpoint.
+	// middlewares is a list of functions which will be executed before calling
+	// the handler for a specific endpoint.
 	middlewares []middleware.ServerMiddleware
 
-	// Every processed request will be responded to in a separate
-	// go routine. The server holds a chanel on which all the responses
-	// from a handler func is added.
+	// Every processed request will be responded to in a separate go routine.
+	// The server holds a chanel on which all the responses from a handler func
+	// is added.
 	responses chan processedRequest
 
 	// dialconfig is a amqp.Config which holds information about the connection
 	// such as authentication, TLS configuration, and a dailer which is a
-	// function used to obtain a connection.
-	// By default the dialconfig will include a dail function implemented in
-	// connection/dialer.go.
+	// function used to obtain a connection. By default the dialconfig will
+	// include a dail function implemented in connection/dialer.go.
 	dialconfig amqp.Config
 
-	// queueDeclareSettings is configuration used when declaring a RabbitMQ queue.
+	// queueDeclareSettings is configuration used when declaring a RabbitMQ
+	// queue.
 	queueDeclareSettings connection.QueueDeclareSettings
 
-	// consumeSetting is configuration used when consuming from the message bus.
+	// consumeSetting is configuration used when consuming from the message
+	// bus.
 	consumeSettings connection.ConsumeSettings
 
-	// publishSettings is the configuration used when publishing a message with the client
+	// publishSettings is the configuration used when publishing a message with
+	// the client
 	publishSettings connection.PublishSettings
 }
 
 // processedRequest is used to add the response from a handler func combined
-// with a amqp.Delivery. The reasone we need to combine those is that we
-// reply to each request in a separate go routine and the delivery is required
-// to determine on which queue to reply.
+// with a amqp.Delivery. The reasone we need to combine those is that we reply
+// to each request in a separate go routine and the delivery is required to
+// determine on which queue to reply.
 type processedRequest struct {
 	delivery amqp.Delivery
 	response []byte
@@ -71,8 +74,8 @@ func New(url string) *RPCServer {
 		url:         url,
 		handlers:    map[string]handlerFunc{},
 		middlewares: []middleware.ServerMiddleware{},
-		dialconfig:  amqp.Config{
-			// Dial: connection.DefaultDialer,
+		dialconfig: amqp.Config{
+			Dial: connection.DefaultDialer,
 		},
 		queueDeclareSettings: connection.QueueDeclareSettings{},
 		consumeSettings:      connection.ConsumeSettings{},
@@ -80,10 +83,6 @@ func New(url string) *RPCServer {
 	}
 
 	return &server
-}
-
-func Close() {
-
 }
 
 // WithDialConfig sets the dial config used for the server.
@@ -106,9 +105,9 @@ func (s *RPCServer) AddHandler(queueName string, handler handlerFunc) {
 	s.handlers[queueName] = handler
 }
 
-// ListenAndServe will dial the RabbitMQ message bus, set up
-// all the channels, consume from all RPC server queues and monitor
-// to connection to ensure the server is always connected.
+// ListenAndServe will dial the RabbitMQ message bus, set up all the channels,
+// consume from all RPC server queues and monitor to connection to ensure the
+// server is always connected.
 func (s *RPCServer) ListenAndServe() {
 	s.responses = make(chan processedRequest)
 
