@@ -9,7 +9,7 @@ import (
 
 	"github.com/bombsimon/amqp-rpc/client"
 	"github.com/bombsimon/amqp-rpc/connection"
-	"github.com/bombsimon/amqp-rpc/test_helpers"
+	"github.com/bombsimon/amqp-rpc/testhelpers"
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
@@ -92,7 +92,7 @@ func TestReconnect(t *testing.T) {
 		false, // noWait
 	)
 
-	dialer, connections := test_helpers.TestDialer(t)
+	dialer, connections := testhelpers.TestDialer(t)
 	s := New(url).WithDialConfig(amqp.Config{Dial: dialer})
 
 	s.AddHandler("myqueue", func(ctx context.Context, d amqp.Delivery) []byte {
