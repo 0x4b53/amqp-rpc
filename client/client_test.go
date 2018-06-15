@@ -22,6 +22,7 @@ func TestClient(t *testing.T) {
 	})
 
 	go server.ListenAndServe()
+	time.Sleep(50 * time.Millisecond)
 
 	client := New("amqp://guest:guest@localhost:5672/")
 	NotEqual(t, client, nil)

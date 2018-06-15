@@ -29,7 +29,7 @@ func TestSendWithReply(t *testing.T) {
 		return []byte(fmt.Sprintf("Got message: %s", d.Body))
 	})
 
-	go s.ListenAndServe()
+	startServer(s)
 
 	c := client.New(url)
 	request := client.NewRequest("myqueue").WithStringBody("this is a message")
@@ -58,7 +58,7 @@ func TestMiddleware(t *testing.T) {
 		return []byte(fmt.Sprintf("this is not allowed"))
 	})
 
-	go s.ListenAndServe()
+	startServer(s)
 
 	c := client.New(url)
 
@@ -100,10 +100,7 @@ func TestReconnect(t *testing.T) {
 		return []byte(fmt.Sprintf("Got message: %s", d.Body))
 	})
 
-	go s.ListenAndServe()
-
-	// Sleep a bit to ensure server is started.
-	time.Sleep(100 * time.Millisecond)
+	startServer(s)
 	c := client.New(url)
 
 	for i := 0; i < 2; i++ {
@@ -117,4 +114,9 @@ func TestReconnect(t *testing.T) {
 
 		Equal(t, reply.Body, []byte(fmt.Sprintf("Got message: %s", message)))
 	}
+}
+
+func startServer(s *RPCServer) {
+	go s.ListenAndServe()
+	time.Sleep(50 * time.Millisecond)
 }
