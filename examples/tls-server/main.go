@@ -36,13 +36,13 @@ func main() {
 	s.ListenAndServe()
 }
 
-func handleHelloWorld(ctx context.Context, d amqp.Delivery) []byte {
+func handleHelloWorld(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
 	logger.Infof("Handling 'Hello world' request")
 
-	return []byte(fmt.Sprintf("Got message: %s", d.Body))
+	fmt.Fprintf(rw, "Got message: %s", d.Body)
 }
 
-func handleClientUsage(ctx context.Context, d amqp.Delivery) []byte {
+func handleClientUsage(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
 	logger.Infof("Handling 'Client usage' request")
 
 	cert := connection.Certificates{
@@ -57,8 +57,8 @@ func handleClientUsage(ctx context.Context, d amqp.Delivery) []byte {
 	response, err := c.Send(request)
 	if err != nil {
 		logger.Warnf("Something went wrong: %s", err)
-		return []byte(err.Error())
+		fmt.Fprint(rw, err.Error())
 	}
 
-	return []byte(fmt.Sprintf("Response from next endpoint: %s", response.Body))
+	fmt.Fprintf(rw, "Response from next endpoint: %s", response.Body)
 }

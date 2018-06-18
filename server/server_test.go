@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -25,8 +24,8 @@ func TestSendWithReply(t *testing.T) {
 
 	NotEqual(t, s.dialconfig.TLSClientConfig, nil)
 
-	s.AddHandler("myqueue", func(ctx context.Context, d amqp.Delivery) []byte {
-		return []byte(fmt.Sprintf("Got message: %s", d.Body))
+	s.AddHandler("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	})
 
 	startServer(s)
@@ -40,22 +39,25 @@ func TestSendWithReply(t *testing.T) {
 }
 
 func TestMiddleware(t *testing.T) {
-	mw := func(rk string, ctx context.Context, d *amqp.Delivery) error {
-		if rk == "denied" {
-			return errors.New("routing key 'denied' is not allowed")
-		}
+	mw := func(next HandlerFunc) HandlerFunc {
+		return func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+			if ctx.Value("queue_name").(string) == "denied" {
+				fmt.Fprint(rw, "routing key 'denied' is not allowed")
+				return
+			}
 
-		return nil
+			next(ctx, rw, d)
+		}
 	}
 
 	s := New(url).AddMiddleware(mw)
 
-	s.AddHandler("allowed", func(ctx context.Context, d amqp.Delivery) []byte {
-		return []byte(fmt.Sprintf("this is allowed"))
+	s.AddHandler("allowed", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		fmt.Fprint(rw, "this is allowed")
 	})
 
-	s.AddHandler("denied", func(ctx context.Context, d amqp.Delivery) []byte {
-		return []byte(fmt.Sprintf("this is not allowed"))
+	s.AddHandler("denied", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		fmt.Fprint(rw, "this is not allowed")
 	})
 
 	startServer(s)
@@ -95,9 +97,9 @@ func TestReconnect(t *testing.T) {
 	dialer, connections := testhelpers.TestDialer(t)
 	s := New(url).WithDialConfig(amqp.Config{Dial: dialer})
 
-	s.AddHandler("myqueue", func(ctx context.Context, d amqp.Delivery) []byte {
+	s.AddHandler("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		time.Sleep(500 * time.Millisecond)
-		return []byte(fmt.Sprintf("Got message: %s", d.Body))
+		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	})
 
 	startServer(s)

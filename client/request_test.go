@@ -13,12 +13,12 @@ import (
 func TestRequest(t *testing.T) {
 	var url = "amqp://guest:guest@localhost:5672/"
 
-	server := server.New(url)
-	server.AddHandler("myqueue", func(ctx context.Context, d amqp.Delivery) []byte {
-		return []byte(fmt.Sprintf("Got message: %s", d.Body))
+	s := server.New(url)
+	s.AddHandler("myqueue", func(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	})
 
-	go server.ListenAndServe()
+	go s.ListenAndServe()
 
 	client := New(url)
 	NotEqual(t, client, nil)

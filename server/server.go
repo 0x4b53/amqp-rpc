@@ -9,7 +9,6 @@ import (
 
 	"github.com/bombsimon/amqp-rpc/connection"
 	"github.com/bombsimon/amqp-rpc/logger"
-	"github.com/bombsimon/amqp-rpc/middleware"
 )
 
 var (
@@ -17,9 +16,52 @@ var (
 	ErrResponseChClosed = errors.New("Channel closed")
 )
 
-// handlerFunc is the function that handles all request based on the routing
+// HandlerFunc is the function that handles all request based on the routing
 // key.
-type handlerFunc func(context.Context, amqp.Delivery) []byte
+type HandlerFunc func(context.Context, *ResponseWriter, amqp.Delivery)
+
+// ResponseWriter is used by a handler to construct an RPC response.
+// The ResponseWriter may NOT be used after the handler has returned.
+type ResponseWriter struct {
+	publishing *amqp.Publishing
+	mandatory  bool
+	immediate  bool
+}
+
+// Write will write the response Body of the amqp.Publishing.
+// It is safe to call Write multiple times.
+func (rw *ResponseWriter) Write(p []byte) (int, error) {
+	rw.publishing.Body = append(rw.publishing.Body, p...)
+	return len(p), nil
+}
+
+// Returns the internal amqp.Publishing that are used for the response,
+// useful for modification.
+func (rw *ResponseWriter) Publishing() *amqp.Publishing {
+	return rw.publishing
+}
+
+// Mandatory sets the mandatory flag on the later amqp.Publish.
+func (rw *ResponseWriter) Mandatory(m bool) {
+	rw.mandatory = m
+}
+
+// Immediate sets the immediate flag on the later amqp.Publish.
+func (rw *ResponseWriter) Immediate(i bool) {
+	rw.immediate = i
+}
+
+// processedRequest is used to add the response from a handler func combined
+// with a amqp.Delivery. The reasone we need to combine those is that we reply
+// to each request in a separate go routine and the delivery is required to
+// determine on which queue to reply.
+type processedRequest struct {
+	correlationID string
+	replyTo       string
+	mandatory     bool
+	immediate     bool
+	publishing    amqp.Publishing
+}
 
 // RPCServer represents an AMQP server used within the RPC framework. The
 // server uses handlers to map a routing key to a handler function.
@@ -28,12 +70,11 @@ type RPCServer struct {
 	url string
 
 	// handlers is a map where the routing key is used as map key and the value
-	// is a function of type handlerFunc.
-	handlers map[string]handlerFunc
+	// is a function of type HandlerFunc.
+	handlers map[string]HandlerFunc
 
-	// middlewares is a list of functions which will be executed before calling
-	// the handler for a specific endpoint.
-	middlewares []middleware.ServerMiddleware
+	// middlewares are chained and executed on request.
+	middlewares []func(HandlerFunc) HandlerFunc
 
 	// Every processed request will be responded to in a separate go routine.
 	// The server holds a chanel on which all the responses from a handler func
@@ -54,32 +95,22 @@ type RPCServer struct {
 	// bus.
 	consumeSettings connection.ConsumeSettings
 
-	// publishSettings is the configuration used when publishing a message with
-	// the client
-	publishSettings connection.PublishSettings
-}
-
-// processedRequest is used to add the response from a handler func combined
-// with a amqp.Delivery. The reasone we need to combine those is that we reply
-// to each request in a separate go routine and the delivery is required to
-// determine on which queue to reply.
-type processedRequest struct {
-	delivery amqp.Delivery
-	response []byte
+	// ctx is the basic context for the server. This is used to gracefully stop and handle timeouts.
+	ctx context.Context
 }
 
 // New will return a pointer to a new RPCServer.
 func New(url string) *RPCServer {
 	server := RPCServer{
 		url:         url,
-		handlers:    map[string]handlerFunc{},
-		middlewares: []middleware.ServerMiddleware{},
+		handlers:    map[string]HandlerFunc{},
+		middlewares: []func(HandlerFunc) HandlerFunc{},
+		ctx:         context.Background(),
 		dialconfig: amqp.Config{
 			Dial: connection.DefaultDialer,
 		},
 		queueDeclareSettings: connection.QueueDeclareSettings{},
 		consumeSettings:      connection.ConsumeSettings{},
-		publishSettings:      connection.PublishSettings{},
 	}
 
 	return &server
@@ -94,14 +125,14 @@ func (s *RPCServer) WithDialConfig(c amqp.Config) *RPCServer {
 
 // AddMiddleware will add a ServerMiddleware to the list of middlewares to be
 // triggered before the handle func for each request.
-func (s *RPCServer) AddMiddleware(m middleware.ServerMiddleware) *RPCServer {
+func (s *RPCServer) AddMiddleware(m func(HandlerFunc) HandlerFunc) *RPCServer {
 	s.middlewares = append(s.middlewares, m)
 
 	return s
 }
 
 // AddHandler adds a new handler to the RPC server.
-func (s *RPCServer) AddHandler(queueName string, handler handlerFunc) {
+func (s *RPCServer) AddHandler(queueName string, handler HandlerFunc) {
 	s.handlers[queueName] = handler
 }
 
@@ -166,7 +197,7 @@ func (s *RPCServer) listenAndServe() error {
 	return err
 }
 
-func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp.Channel) error {
+func (s *RPCServer) consume(queueName string, handler HandlerFunc, inputCh *amqp.Channel) error {
 	queue, err := inputCh.QueueDeclare(
 		queueName,
 		s.queueDeclareSettings.Durable,
@@ -194,33 +225,32 @@ func (s *RPCServer) consume(queueName string, handler handlerFunc, inputCh *amqp
 		return err
 	}
 
+	// attach the middlewares to the handler.
+	handler = Middlewares(handler, s.middlewares...)
+
 	go func() {
 		logger.Infof("server: waiting for messages on queue '%s'", queue.Name)
 
 		for delivery := range deliveries {
 			logger.Infof("server: got delivery on queue %v correlation id %v", queue.Name, delivery.CorrelationId)
-			var (
-				errMiddleware error
-				response      []byte
-			)
 
-			for _, middleware := range s.middlewares {
-				errMiddleware = middleware(queue.Name, context.TODO(), &delivery)
-				if errMiddleware != nil {
-					response = []byte(errMiddleware.Error())
-					break
-				}
+			rw := ResponseWriter{
+				publishing: &amqp.Publishing{
+					CorrelationId: delivery.CorrelationId,
+					Body:          []byte{},
+				},
 			}
 
-			if errMiddleware == nil {
-				response = handler(context.TODO(), delivery)
-			}
+			ctx := context.WithValue(s.ctx, "queue_name", queue.Name)
 
+			handler(ctx, &rw, delivery)
 			delivery.Ack(false)
 
 			s.responses <- processedRequest{
-				response: response,
-				delivery: delivery,
+				replyTo:    delivery.ReplyTo,
+				mandatory:  rw.mandatory,
+				immediate:  rw.immediate,
+				publishing: *rw.publishing,
 			}
 		}
 
@@ -239,13 +269,10 @@ func (s *RPCServer) responder(outCh *amqp.Channel) error {
 
 		err := outCh.Publish(
 			"", // exchange
-			response.delivery.ReplyTo,
-			s.publishSettings.Mandatory,
-			s.publishSettings.Immediate,
-			amqp.Publishing{
-				Body:          response.response,
-				CorrelationId: response.delivery.CorrelationId,
-			},
+			response.replyTo,
+			response.mandatory,
+			response.immediate,
+			response.publishing,
 		)
 
 		if err != nil {
@@ -256,8 +283,8 @@ func (s *RPCServer) responder(outCh *amqp.Channel) error {
 
 		logger.Infof(
 			"server: successfully published response %v to %v",
-			response.delivery.CorrelationId,
-			response.delivery.ReplyTo,
+			response.publishing.CorrelationId,
+			response.replyTo,
 		)
 	}
 }
