@@ -41,7 +41,7 @@ func TestSendWithReply(t *testing.T) {
 func TestMiddleware(t *testing.T) {
 	mw := func(next HandlerFunc) HandlerFunc {
 		return func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-			if ctx.Value("queue_name").(string) == "denied" {
+			if ctx.Value(CtxQueueName).(string) == "denied" {
 				fmt.Fprint(rw, "routing key 'denied' is not allowed")
 				return
 			}

@@ -11,6 +11,14 @@ import (
 	"github.com/bombsimon/amqp-rpc/logger"
 )
 
+type ctxKey string
+
+const (
+	// CtxQueueName can be used to get the queue name from the context.Context
+	// inside the HandlerFunc.
+	CtxQueueName ctxKey = "queue_name"
+)
+
 var (
 	// ErrResponseChClosed is an error representing a closed response channel.
 	ErrResponseChClosed = errors.New("Channel closed")
@@ -35,7 +43,7 @@ func (rw *ResponseWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// Returns the internal amqp.Publishing that are used for the response,
+// Publishing returns the internal amqp.Publishing that are used for the response,
 // useful for modification.
 func (rw *ResponseWriter) Publishing() *amqp.Publishing {
 	return rw.publishing
@@ -241,7 +249,7 @@ func (s *RPCServer) consume(queueName string, handler HandlerFunc, inputCh *amqp
 				},
 			}
 
-			ctx := context.WithValue(s.ctx, "queue_name", queue.Name)
+			ctx := context.WithValue(s.ctx, CtxQueueName, queue.Name)
 
 			handler(ctx, &rw, delivery)
 			delivery.Ack(false)
