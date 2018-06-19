@@ -40,7 +40,13 @@ func TestClientConfig(t *testing.T) {
 	NotEqual(t, certClient, nil)
 
 	ac := amqp.Config{}
-	acClient := New(url).WithDialConfig(ac)
+	qdSettings := connection.QueueDeclareSettings{}
+	cSettings := connection.ConsumeSettings{}
+
+	acClient := New(url).WithDialConfig(ac).
+		WithQueueDeclareSettings(qdSettings).
+		WithConsumeSettings(cSettings).
+		WithTimeout(2500 * time.Millisecond)
 
 	NotEqual(t, acClient, nil)
 }
