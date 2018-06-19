@@ -20,6 +20,9 @@ var (
 // Client represents an AMQP client used within a RPC framework.
 // This client can be used to communicate with RPC servers.
 type Client struct {
+	// url is the URL where the server should dial to start subscribing.
+	url string
+
 	// Exchange is the RabbitMQ exchange to publish all messages on.
 	// This exchange will default to an empty string which is also called
 	// amq.default.
@@ -70,6 +73,12 @@ type Client struct {
 	// replyToQueueName can be used to avoid generating queue names on the message
 	// bus and use a pre defined name throughout the usage of a client.
 	replyToQueueName string
+
+	// running holds the state telling if the client is running the publisher
+	// and reply consumer. By default this is false when a client is created
+	// but will be set to true after the runner is called the first time the
+	// client needs to connect.
+	publisherRunning bool
 }
 
 // publishingRequestMessages is a type that holds information about each request
@@ -94,8 +103,9 @@ type publishingRequestMessages struct {
 // It is also possible to create a custom amqp.Config with whatever
 // configuration desired and that will be used as dial configuration when
 // connection to the message bus.
-func New(url string, args ...interface{}) *Client {
+func New(url string) *Client {
 	c := &Client{
+		url: url,
 		dialconfig: amqp.Config{
 			Dial: connection.DefaultDialer,
 		},
@@ -105,22 +115,45 @@ func New(url string, args ...interface{}) *Client {
 		replyToQueueName:   "reply-to-" + uuid.Must(uuid.NewV4()).String(),
 	}
 
-	// Scan arguments for amqp.Config or Certificates config
-	for _, arg := range args {
-		switch v := arg.(type) {
-		case amqp.Config:
-			c.dialconfig = v
-
-		case connection.Certificates:
-			// Set the TLSClientConfig in the dialconfig
-			c.dialconfig.TLSClientConfig = v.TLSConfig()
-		}
-	}
-
 	// Set default values to use when crearing channels and consumers.
 	c.setDefaults()
 
-	go c.runForever(url)
+	return c
+}
+
+// WithDialConfig sets the dial config used for the client.
+func (c *Client) WithDialConfig(dc amqp.Config) *Client {
+	c.dialconfig = dc
+
+	return c
+}
+
+// WithTLS sets the TLS config in the dial config for the client.
+func (c *Client) WithTLS(cert connection.Certificates) *Client {
+	c.dialconfig.TLSClientConfig = cert.TLSConfig()
+
+	return c
+}
+
+// WithQueueDeclareSettings will set the settings used when declaring queues
+// for the client globally.
+func (c *Client) WithQueueDeclareSettings(s connection.QueueDeclareSettings) *Client {
+	c.queueDeclareSettings = s
+
+	return c
+}
+
+// WithTimeout will set the client timeout used when publishing messages.
+func (c *Client) WithTimeout(t time.Duration) *Client {
+	c.Timeout = t
+
+	return c
+}
+
+// WithConsumeSettings will set the settings used when consuming in the client
+// globally.
+func (c *Client) WithConsumeSettings(s connection.ConsumeSettings) *Client {
+	c.consumeSettings = s
 
 	return c
 }
@@ -330,8 +363,18 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 	return nil
 }
 
+func (c *Client) ensureRunning() {
+	if !c.publisherRunning {
+		go c.runForever(c.url)
+
+		c.publisherRunning = true
+	}
+}
+
 // Send will send a Request by using a amqp.Publishing.
 func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
+	c.ensureRunning()
+
 	// Init a channel to receive responses. A channel is used to be
 	// non-blocking.
 	var responseChannel chan amqp.Delivery
