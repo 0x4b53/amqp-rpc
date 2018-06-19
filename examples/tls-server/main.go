@@ -51,7 +51,7 @@ func handleClientUsage(ctx context.Context, rw *server.ResponseWriter, d amqp.De
 		CA:   "client/cacert.pem",
 	}
 
-	c := client.New("amqps://guest:guest@localhost:5671/", cert)
+	c := client.New("amqps://guest:guest@localhost:5671/").WithTLS(cert)
 
 	request := client.NewRequest("hello_world").WithStringBody("Sent with client")
 	response, err := c.Send(request)

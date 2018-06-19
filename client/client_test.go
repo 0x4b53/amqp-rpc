@@ -35,27 +35,31 @@ func TestClient(t *testing.T) {
 
 func TestClientConfig(t *testing.T) {
 	cert := connection.Certificates{}
-	certClient := New(url, cert)
+	certClient := New(url).WithTLS(cert)
 
 	NotEqual(t, certClient, nil)
 
 	ac := amqp.Config{}
-	acClient := New(url, ac)
+	acClient := New(url).WithDialConfig(ac)
 
 	NotEqual(t, acClient, nil)
 }
 
 func TestReconnect(t *testing.T) {
 	dialer, connections := testhelpers.TestDialer(t)
-	client := New(url, amqp.Config{Dial: dialer})
+	client := New(url).WithDialConfig(amqp.Config{Dial: dialer})
 	NotEqual(t, client, nil)
+
+	// Force a connection by calling send.
+	_, err := client.Send(NewRequest("myqueue").WithResponse(false))
+	Equal(t, err, nil)
 
 	// Hook into the connection, disconnect
 	time.Sleep(100 * time.Millisecond)
 	conn, _ := <-connections
 	conn.Close()
 
-	_, err := client.Send(NewRequest("myqueue").WithStringBody("client testing"))
+	_, err = client.Send(NewRequest("myqueue").WithStringBody("client testing"))
 	NotEqual(t, err, nil)
 
 	// Ensure we're reconnected

@@ -75,11 +75,12 @@ s.ListenAndServe()
 
 ### Client
 
-Similar to the server, a client can be passed a `Certificates` type when calling
-`New` to setup the connection with TLS. Everything you usually handle is handled
-within the client package such as creating channels, creating queues,
-subscribing to said queue will be taken care of for you. The client will monitor
-the connection and reconnect if it's lost.
+Similar to the server, a client is passed an URL when calling `New`. To setup
+the connection with TLS either a complete dialconfig or just a certificate type
+can be passed. Everything you usually handle is handled within the client
+package such as creating channels, creating queues, subscribing to said queue
+will be taken care of for you. The client will monitor the connection and
+reconnect if it's lost.
 
 The client is designed to handle publishing and consumption of the reply in a
 non-blocking way to ensure that everyone using a client will get their message
@@ -97,10 +98,21 @@ if err != nil {
 logger.Info(string(response.Body))
 ```
 
-If you're using the client but not the server, or for any other reason want to
-handle your connection manually, see `NewWithConnection`. Note that the
-connection passed will **not** be monitored so if you've recovered your
-connection and need to set it again you should use `SetConnection`.
+The client will not connect upon calling new, instead this is made the first
+time a connection is required, usually when calling `Send`. By doint this you're
+able to chain multiple methods after calling new to modify the client settings.
+
+````go
+c := client.New("amqp://guest:guest@localhost:5672").
+    WithTimeout(5000 * time.Milliseconds).
+    WithDialConfig(dialConfig).
+    WithTLS(cert).
+    WithQueueDeclareSettings(qdSettings).
+    WithConsumeSettings(cSettings)
+
+// Will not connect until this call.
+c.Send(NewRequest("queue_one"))
+```
 
 ### Logger
 
@@ -163,7 +175,7 @@ s := server.New(uri).WithDialConfig(dialConfig)
 
 s.ListenAndServe()
 
-c := client.New(uri, cert)
+c := client.New(uri).WithTLS(cert)
 ```
 
 ## Example
