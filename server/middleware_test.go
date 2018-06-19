@@ -20,7 +20,7 @@ func traceMiddleware(ID int) func(HandlerFunc) HandlerFunc {
 }
 
 func TestMiddlewareChain(t *testing.T) {
-	handler := Middlewares(
+	handler := MiddlewareChain(
 		func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 			fmt.Fprint(rw, "X")
 		},
