@@ -24,51 +24,18 @@ var (
 	ErrResponseChClosed = errors.New("Channel closed")
 )
 
-// HandlerFunc is the function that handles all request based on the routing
-// key.
+// HandlerFunc is the function that handles all request based on the routing key.
 type HandlerFunc func(context.Context, *ResponseWriter, amqp.Delivery)
-
-// ResponseWriter is used by a handler to construct an RPC response.
-// The ResponseWriter may NOT be used after the handler has returned.
-type ResponseWriter struct {
-	publishing *amqp.Publishing
-	mandatory  bool
-	immediate  bool
-}
-
-// Write will write the response Body of the amqp.Publishing.
-// It is safe to call Write multiple times.
-func (rw *ResponseWriter) Write(p []byte) (int, error) {
-	rw.publishing.Body = append(rw.publishing.Body, p...)
-	return len(p), nil
-}
-
-// Publishing returns the internal amqp.Publishing that are used for the response,
-// useful for modification.
-func (rw *ResponseWriter) Publishing() *amqp.Publishing {
-	return rw.publishing
-}
-
-// Mandatory sets the mandatory flag on the later amqp.Publish.
-func (rw *ResponseWriter) Mandatory(m bool) {
-	rw.mandatory = m
-}
-
-// Immediate sets the immediate flag on the later amqp.Publish.
-func (rw *ResponseWriter) Immediate(i bool) {
-	rw.immediate = i
-}
 
 // processedRequest is used to add the response from a handler func combined
 // with a amqp.Delivery. The reasone we need to combine those is that we reply
 // to each request in a separate go routine and the delivery is required to
 // determine on which queue to reply.
 type processedRequest struct {
-	correlationID string
-	replyTo       string
-	mandatory     bool
-	immediate     bool
-	publishing    amqp.Publishing
+	replyTo    string
+	mandatory  bool
+	immediate  bool
+	publishing amqp.Publishing
 }
 
 // RPCServer represents an AMQP server used within the RPC framework. The
@@ -82,7 +49,7 @@ type RPCServer struct {
 	handlers map[string]HandlerFunc
 
 	// middlewares are chained and executed on request.
-	middlewares []func(HandlerFunc) HandlerFunc
+	middlewares []MiddlewareFunc
 
 	// Every processed request will be responded to in a separate go routine.
 	// The server holds a chanel on which all the responses from a handler func
@@ -102,9 +69,6 @@ type RPCServer struct {
 	// consumeSetting is configuration used when consuming from the message
 	// bus.
 	consumeSettings connection.ConsumeSettings
-
-	// ctx is the basic context for the server. This is used to gracefully stop and handle timeouts.
-	ctx context.Context
 }
 
 // New will return a pointer to a new RPCServer.
@@ -112,8 +76,7 @@ func New(url string) *RPCServer {
 	server := RPCServer{
 		url:         url,
 		handlers:    map[string]HandlerFunc{},
-		middlewares: []func(HandlerFunc) HandlerFunc{},
-		ctx:         context.Background(),
+		middlewares: []MiddlewareFunc{},
 		dialconfig: amqp.Config{
 			Dial: connection.DefaultDialer,
 		},
@@ -133,7 +96,7 @@ func (s *RPCServer) WithDialConfig(c amqp.Config) *RPCServer {
 
 // AddMiddleware will add a ServerMiddleware to the list of middlewares to be
 // triggered before the handle func for each request.
-func (s *RPCServer) AddMiddleware(m func(HandlerFunc) HandlerFunc) *RPCServer {
+func (s *RPCServer) AddMiddleware(m MiddlewareFunc) *RPCServer {
 	s.middlewares = append(s.middlewares, m)
 
 	return s
@@ -234,7 +197,7 @@ func (s *RPCServer) consume(queueName string, handler HandlerFunc, inputCh *amqp
 	}
 
 	// attach the middlewares to the handler.
-	handler = Middlewares(handler, s.middlewares...)
+	handler = MiddlewareChain(handler, s.middlewares...)
 
 	go func() {
 		logger.Infof("server: waiting for messages on queue '%s'", queue.Name)
@@ -249,7 +212,7 @@ func (s *RPCServer) consume(queueName string, handler HandlerFunc, inputCh *amqp
 				},
 			}
 
-			ctx := context.WithValue(s.ctx, CtxQueueName, queue.Name)
+			ctx := context.WithValue(context.Background(), CtxQueueName, queue.Name)
 
 			handler(ctx, &rw, delivery)
 			delivery.Ack(false)

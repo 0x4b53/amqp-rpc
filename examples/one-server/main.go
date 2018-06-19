@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bombsimon/amqp-rpc/logger"
 	"github.com/bombsimon/amqp-rpc/server"
 
 	"github.com/streadway/amqp"
@@ -20,6 +19,5 @@ func main() {
 }
 
 func upper(c context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
-	logger.Infof("Handling 'Hello world' request")
 	fmt.Fprint(rw, strings.ToUpper(string(d.Body)))
 }
