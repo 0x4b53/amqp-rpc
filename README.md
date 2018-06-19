@@ -26,10 +26,9 @@ messages published to `routing_key` looks like this:
 
 ```go
 s := server.New("amqp://guest:guest@localhost:5672")
-s.AddHandler("routing_key", func(c context.Context, d *amqp.Delivery) []byte {
+s.AddHandler("routing_key", func(c context.Context, rw *ResponseWriter d *amqp.Delivery) []byte {
     fmt.Println(d.Body, d.Headers)
-
-    return []byte("Handled")
+    fmt.Fprint(rw, "Handled")
 })
 
 s.ListenAndServe()
@@ -37,26 +36,40 @@ s.ListenAndServe()
 
 #### Middlewares
 
-It's possible to hook middlewares in the server which will be executed before
-each route. The server middleware is defined as follows:
+Middlewares can be hooked to both a handler and to the entire server. And are executed
+when the handler is.
+
+The middleware is defined as follows:
 
 ```go
-type ServerMiddleware func(string, context.Context, *amqp.Delivery) error
+type MiddlewareFunc func(next HandlerFunc) Handlerfunc
 ```
 
-If the error returned is **not** `nil`, the handler for the given routing key
-will **not** be called.
+To execute the inner handler call `next` with the correct arguments:
 
 ```go
-noEmptyAuthHeader := func(rk string, c context.Context, d *amqp.Delivery) error {
-    if _, ok := headers["authorization"]; !ok {
-        return errors.New("Missing authorization header")
-    }
+func myMiddle(next HandlerFunc) HandlerFunc {
 
-    return nil
+	// Preinitialization of middleware here.
+
+	return func(ctx context.Context, rw *ResponseWriter d amqp.Delivery) {
+		// Before handler execution here.
+
+		// Execute the handler.
+		next(ctx, rw, d)
+
+		// After execution here.
+	}
 }
 
-s := server.New("amqp://guest:guest@localhost:5672").AddMiddleware(noEmptyAuthHeader)
+s := server.New("amqp://guest:guest@localhost:5672")
+
+// Add middleware to specific handler.
+s.AddHandler("foobar", myMiddle(HandlerFunc))
+
+// Add middleware to all handlers on the server.
+s.AddMiddleware(myMiddle)
+
 s.ListenAndServe()
 ```
 
