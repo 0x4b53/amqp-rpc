@@ -143,17 +143,17 @@ func (c *Client) WithQueueDeclareSettings(s connection.QueueDeclareSettings) *Cl
 	return c
 }
 
-// WithTimeout will set the client timeout used when publishing messages.
-func (c *Client) WithTimeout(t time.Duration) *Client {
-	c.Timeout = t
-
-	return c
-}
-
 // WithConsumeSettings will set the settings used when consuming in the client
 // globally.
 func (c *Client) WithConsumeSettings(s connection.ConsumeSettings) *Client {
 	c.consumeSettings = s
+
+	return c
+}
+
+// WithTimeout will set the client timeout used when publishing messages.
+func (c *Client) WithTimeout(t time.Duration) *Client {
+	c.Timeout = t
 
 	return c
 }
