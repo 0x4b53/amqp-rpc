@@ -196,7 +196,7 @@ func (s *RPCServer) consume(queueName string, handler HandlerFunc, inputCh *amqp
 		return err
 	}
 
-	// attach the middlewares to the handler.
+	// Attach the middlewares to the handler.
 	handler = MiddlewareChain(handler, s.middlewares...)
 
 	go func() {

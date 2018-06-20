@@ -26,7 +26,8 @@ messages published to `routing_key` looks like this:
 
 ```go
 s := server.New("amqp://guest:guest@localhost:5672")
-s.AddHandler("routing_key", func(c context.Context, rw *ResponseWriter d *amqp.Delivery) []byte {
+
+s.AddHandler("routing_key", func(c context.Context, rw *ResponseWriter d *amqp.Delivery) {
     fmt.Println(d.Body, d.Headers)
     fmt.Fprint(rw, "Handled")
 })
@@ -64,8 +65,19 @@ func myMiddle(next HandlerFunc) HandlerFunc {
 
 s := server.New("amqp://guest:guest@localhost:5672")
 
-// Add middleware to specific handler.
+// Add a middleware to specific handler.
 s.AddHandler("foobar", myMiddle(HandlerFunc))
+
+// Add multiple middlewares to specific handler.
+s.AddHandler(
+    "foobar",
+    MiddlewareChain(
+        myHandler,
+        middlewareOne,
+        middlewareTwo,
+        middlewareThree,
+    )
+)
 
 // Add middleware to all handlers on the server.
 s.AddMiddleware(myMiddle)
@@ -102,7 +114,7 @@ The client will not connect upon calling new, instead this is made the first
 time a connection is required, usually when calling `Send`. By doint this you're
 able to chain multiple methods after calling new to modify the client settings.
 
-````go
+```go
 c := client.New("amqp://guest:guest@localhost:5672").
     WithTimeout(5000 * time.Milliseconds).
     WithDialConfig(dialConfig).
