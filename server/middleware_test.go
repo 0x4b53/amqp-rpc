@@ -9,7 +9,7 @@ import (
 	. "gopkg.in/go-playground/assert.v1"
 )
 
-func traceMiddleware(ID int) func(HandlerFunc) HandlerFunc {
+func traceMiddleware(ID int) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
 		return func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 			fmt.Fprint(rw, ID)

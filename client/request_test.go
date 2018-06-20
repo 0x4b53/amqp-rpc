@@ -37,7 +37,7 @@ func TestRequest(t *testing.T) {
 		WithContext(context.TODO()).
 		WithResponse(false).
 		WithContentType("application/json").
-		WithBody([]byte(`{"foo":"bar"}`))
+		WithStringBody(`{"foo":"bar"}`)
 
 	response, err = client.Send(request)
 	Equal(t, err, nil)
