@@ -82,9 +82,10 @@ type RPCServer struct {
 // New will return a pointer to a new RPCServer.
 func New(url string) *RPCServer {
 	server := RPCServer{
-		url:         url,
-		handlers:    map[string]HandlerFunc{},
-		middlewares: []MiddlewareFunc{},
+		url:            url,
+		handlers:       map[string]HandlerFunc{},
+		fanoutHandlers: map[string]HandlerFunc{},
+		middlewares:    []MiddlewareFunc{},
 		dialconfig: amqp.Config{
 			Dial: connection.DefaultDialer,
 		},

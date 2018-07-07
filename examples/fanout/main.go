@@ -13,17 +13,23 @@ func main() {
 	s1 := server.New("amqp://guest:guest@localhost:5672/")
 	s2 := server.New("amqp://guest:guest@localhost:5672/")
 
-	s1.AddHandler("", fanoutHandlerOne)
-	s2.AddHandler("", fanoutHandlerTwo)
+	s1.AddFanoutHandler("cool-exchange", fanoutHandlerOne)
+	s2.AddFanoutHandler("cool-exchange", fanoutHandlerTwo)
 
-	s1.ListenAndServe()
-	s2.ListenAndServe()
+	forever := make(chan bool)
+
+	go s1.ListenAndServe()
+	go s2.ListenAndServe()
+
+	<-forever
 }
 
 func fanoutHandlerOne(c context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+	fmt.Println("FIRST")
 	fmt.Fprint(rw, "First server handled request")
 }
 
 func fanoutHandlerTwo(c context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+	fmt.Println("SECOND")
 	fmt.Fprint(rw, "Second server handled request")
 }
