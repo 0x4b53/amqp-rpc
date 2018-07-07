@@ -2,6 +2,16 @@ package connection
 
 import "github.com/streadway/amqp"
 
+// ExchangeDeclareSettings is the settings that will be used when a handler
+// is mapped to a fanout exchange and an exchange is declared.
+type ExchangeDeclareSettings struct {
+	Durable    bool
+	AutoDelete bool
+	Internal   bool
+	NoWait     bool
+	Args       amqp.Table
+}
+
 // QueueDeclareSettings is the settings that will be used when the response
 // any kind of queue is declared. Se documentation for amqp.QueueDeclare
 // for more information about these settings.
