@@ -89,14 +89,9 @@ func New(url string) *RPCServer {
 		dialconfig: amqp.Config{
 			Dial: connection.DefaultDialer,
 		},
-		exchangeDelcareSettings: connection.ExchangeDeclareSettings{
-			Durable:    true,
-			AutoDelete: false,
-			Internal:   false,
-			NoWait:     false,
-		},
-		queueDeclareSettings: connection.QueueDeclareSettings{},
-		consumeSettings:      connection.ConsumeSettings{},
+		exchangeDelcareSettings: connection.ExchangeDeclareSettings{},
+		queueDeclareSettings:    connection.QueueDeclareSettings{},
+		consumeSettings:         connection.ConsumeSettings{},
 	}
 
 	return &server
