@@ -32,9 +32,10 @@ func TestRequest(t *testing.T) {
 	Equal(t, err, nil)
 	Equal(t, response.Body, []byte("Got message: hello request"))
 
-	// Test with context, content type nad raw body.
+	// Test with exchange, headers, content type nad raw body.
 	request = NewRequest("myqueue").
-		WithContext(context.TODO()).
+		WithExchange("").
+		WithHeaders(amqp.Table{}).
 		WithResponse(false).
 		WithContentType("application/json").
 		WithBody([]byte(`{"foo":"bar"}`))

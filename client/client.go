@@ -23,11 +23,6 @@ type Client struct {
 	// url is the URL where the server should dial to start subscribing.
 	url string
 
-	// Exchange is the RabbitMQ exchange to publish all messages on.
-	// This exchange will default to an empty string which is also called
-	// amq.default.
-	Exchange string
-
 	// Timeout is the time we should wait after a request is sent before
 	// we assume the request got lost.
 	Timeout time.Duration
@@ -86,6 +81,7 @@ type Client struct {
 // has one channel for responses after the message is sent and one for errors
 // if an error occurrs when trying to send the message.
 type publishingRequestMessages struct {
+	exchange   string
 	routingKey string
 	publishing amqp.Publishing
 	response   chan amqp.Delivery
@@ -265,7 +261,7 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 			logger.Infof("client: publishing %v", request.publishing.CorrelationId)
 
 			err := outChan.Publish(
-				c.Exchange,
+				request.exchange,
 				request.routingKey,
 				c.publishSettings.Mandatory,
 				c.publishSettings.Immediate,
@@ -318,6 +314,7 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 		c.queueDeclareSettings.NoWait,
 		c.queueDeclareSettings.Args,
 	)
+
 	if err != nil {
 		return err
 	}
@@ -386,9 +383,11 @@ func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 
 	logger.Infof("client: sender: replyChan is %v", responseChannel)
 	request := &publishingRequestMessages{
+		exchange:   r.Exchange,
 		routingKey: r.RoutingKey,
 		publishing: amqp.Publishing{
-			ContentType:   r.Header["ContentType"].(string),
+			Headers:       r.Headers,
+			ContentType:   r.Headers["ContentType"].(string),
 			ReplyTo:       c.replyToQueueName,
 			Body:          r.Body,
 			CorrelationId: uuid.Must(uuid.NewV4()).String(),
