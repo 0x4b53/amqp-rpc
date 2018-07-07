@@ -234,8 +234,7 @@ func (c *Client) runOnce(url string) error {
 	return err
 }
 
-// Declare input- and output channels to use when publishing and consuming
-// data.
+// Declare input- and output channels to use when publishing and consuming data.
 func (c *Client) declareChannels(conn *amqp.Connection) (*amqp.Channel, *amqp.Channel, error) {
 	inputCh, err := conn.Channel()
 	if err != nil {
