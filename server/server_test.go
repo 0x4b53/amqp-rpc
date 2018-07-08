@@ -139,7 +139,7 @@ func TestFanout(t *testing.T) {
 	startServer(s3)
 
 	c := client.New(url)
-	_, err := c.Send(client.NewRequest("").WithExchange("fanout-exchange").WithResponse(false))
+	_, err := c.Send(client.NewRequest("").WithExchange("fanout-exchange"))
 	time.Sleep(200 * time.Millisecond)
 
 	Equal(t, err, nil)
