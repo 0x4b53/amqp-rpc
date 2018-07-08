@@ -35,7 +35,7 @@ s.AddHandler("routing_key", func(c context.Context, rw *ResponseWriter d *amqp.D
 s.ListenAndServe()
 ```
 
-It's also possible to add handlers for a fanout queue. When this is made the
+It's also possible to add handlers for a fanout exchange. When this is made the
 server will automatically create the exchange, create a queue and bind it. All
 you need to do is to add a handler for the exchange in as many server as you
 desire.
