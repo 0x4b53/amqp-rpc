@@ -89,7 +89,7 @@ func New(url string) *RPCServer {
 		dialconfig: amqp.Config{
 			Dial: connection.DefaultDialer,
 		},
-		exchangeDelcareSettings: connection.ExchangeDeclareSettings{},
+		exchangeDelcareSettings: connection.ExchangeDeclareSettings{Durable: true},
 		queueDeclareSettings:    connection.QueueDeclareSettings{},
 		consumeSettings:         connection.ConsumeSettings{},
 	}
@@ -206,29 +206,7 @@ func (s *RPCServer) consume(queueName, exchangeName string, handler HandlerFunc,
 	}
 
 	if exchangeName != "" {
-		err := inputCh.ExchangeDeclare(
-			exchangeName,
-			"fanout",
-			s.exchangeDelcareSettings.Durable,
-			s.exchangeDelcareSettings.AutoDelete,
-			s.exchangeDelcareSettings.Internal,
-			s.exchangeDelcareSettings.NoWait,
-			s.exchangeDelcareSettings.Args,
-		)
-
-		if err != nil {
-			return err
-		}
-
-		err = inputCh.QueueBind(
-			queue.Name,
-			queueName,
-			exchangeName,
-			false,
-			nil,
-		)
-
-		if err != nil {
+		if err = s.declareAndBindFanout(inputCh, exchangeName, queue.Name); err != nil {
 			return err
 		}
 	}
@@ -278,6 +256,36 @@ func (s *RPCServer) consume(queueName, exchangeName string, handler HandlerFunc,
 
 		logger.Infof("server: stopped waiting for messages on queue '%s'", queue.Name)
 	}()
+
+	return nil
+}
+
+func (s *RPCServer) declareAndBindFanout(inputCh *amqp.Channel, exchangeName, queueName string) error {
+	err := inputCh.ExchangeDeclare(
+		exchangeName,
+		"fanout",
+		s.exchangeDelcareSettings.Durable,
+		s.exchangeDelcareSettings.AutoDelete,
+		s.exchangeDelcareSettings.Internal,
+		s.exchangeDelcareSettings.NoWait,
+		s.exchangeDelcareSettings.Args,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	err = inputCh.QueueBind(
+		queueName,
+		"",
+		exchangeName,
+		false,
+		nil,
+	)
+
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

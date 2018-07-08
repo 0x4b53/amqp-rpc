@@ -288,9 +288,14 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 			// handle potential races. Famous last words. If race problems are
 			// detected, make sure to take this lock *before* publishing on the
 			// out channel.
-			c.mu.Lock()
-			c.correlationMapping[request.publishing.CorrelationId] = request.response
-			c.mu.Unlock()
+			//
+			// This is not needed if we don't want a reply, that's just a risk
+			// for us to hang in the consumer if not handled properly.
+			if request.response != nil {
+				c.mu.Lock()
+				c.correlationMapping[request.publishing.CorrelationId] = request.response
+				c.mu.Unlock()
+			}
 
 			// The request has left the client, no more errors can occur from
 			// here.
