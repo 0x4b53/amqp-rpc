@@ -118,6 +118,34 @@ func TestReconnect(t *testing.T) {
 	}
 }
 
+func TestFanout(t *testing.T) {
+	var timesCalled = 0
+
+	s1 := New(url)
+	s2 := New(url)
+	s3 := New(url)
+
+	fanoutHandler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		fmt.Println("HERE?")
+		timesCalled++
+	}
+
+	s1.AddFanoutHandler("fanout-exchange", fanoutHandler)
+	s2.AddFanoutHandler("fanout-exchange", fanoutHandler)
+	s3.AddFanoutHandler("fanout-exchange", fanoutHandler)
+
+	startServer(s1)
+	startServer(s2)
+	startServer(s3)
+
+	c := client.New(url)
+	_, err := c.Send(client.NewRequest("").WithExchange("fanout-exchange").WithResponse(false))
+	time.Sleep(200 * time.Millisecond)
+
+	Equal(t, err, nil)
+	Equal(t, timesCalled, 3)
+}
+
 func startServer(s *RPCServer) {
 	go s.ListenAndServe()
 	time.Sleep(50 * time.Millisecond)
