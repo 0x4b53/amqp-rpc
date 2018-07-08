@@ -228,36 +228,38 @@ func (s *RPCServer) consume(queueName, exchangeName string, handler HandlerFunc,
 	// Attach the middlewares to the handler.
 	handler = MiddlewareChain(handler, s.middlewares...)
 
-	go func() {
-		logger.Infof("server: waiting for messages on queue '%s'", queue.Name)
-
-		for delivery := range deliveries {
-			logger.Infof("server: got delivery on queue %v correlation id %v", queue.Name, delivery.CorrelationId)
-
-			rw := ResponseWriter{
-				publishing: &amqp.Publishing{
-					CorrelationId: delivery.CorrelationId,
-					Body:          []byte{},
-				},
-			}
-
-			ctx := context.WithValue(context.Background(), CtxQueueName, queue.Name)
-
-			handler(ctx, &rw, delivery)
-			delivery.Ack(false)
-
-			s.responses <- processedRequest{
-				replyTo:    delivery.ReplyTo,
-				mandatory:  rw.mandatory,
-				immediate:  rw.immediate,
-				publishing: *rw.publishing,
-			}
-		}
-
-		logger.Infof("server: stopped waiting for messages on queue '%s'", queue.Name)
-	}()
+	go s.runHandler(handler, deliveries, queue.Name)
 
 	return nil
+}
+
+func (s *RPCServer) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery, queueName string) {
+	logger.Infof("server: waiting for messages on queue '%s'", queueName)
+
+	for delivery := range deliveries {
+		logger.Infof("server: got delivery on queue %v correlation id %v", queueName, delivery.CorrelationId)
+
+		rw := ResponseWriter{
+			publishing: &amqp.Publishing{
+				CorrelationId: delivery.CorrelationId,
+				Body:          []byte{},
+			},
+		}
+
+		ctx := context.WithValue(context.Background(), CtxQueueName, queueName)
+
+		handler(ctx, &rw, delivery)
+		delivery.Ack(false)
+
+		s.responses <- processedRequest{
+			replyTo:    delivery.ReplyTo,
+			mandatory:  rw.mandatory,
+			immediate:  rw.immediate,
+			publishing: *rw.publishing,
+		}
+	}
+
+	logger.Infof("server: stopped waiting for messages on queue '%s'", queueName)
 }
 
 func (s *RPCServer) declareAndBindFanout(inputCh *amqp.Channel, exchangeName, queueName string) error {
