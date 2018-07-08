@@ -35,6 +35,17 @@ s.AddHandler("routing_key", func(c context.Context, rw *ResponseWriter d *amqp.D
 s.ListenAndServe()
 ```
 
+It's also possible to add handlers for a fanout queue. When this is made the
+server will automatically create the exchange, create a queue and bind it. All
+you need to do is to add a handler for the exchange in as many server as you
+desire.
+
+```go
+s := server.New("amqp://guest:guest@localhost:5672)
+
+s.AddFanoutHandler("fanout-exchange-name", handleFunc)
+```
+
 #### Middlewares
 
 Middlewares can be hooked to both a handler and to the entire server. And are executed
@@ -123,8 +134,26 @@ c := client.New("amqp://guest:guest@localhost:5672").
     WithConsumeSettings(cSettings)
 
 // Will not connect until this call.
-c.Send(NewRequest("queue_one"))
+c.Send(client.NewRequest("queue_one"))
 ```
+
+You can also specify other exchanges than the default one, e.g a to send a
+request to a fanout exchange subscribed to by multiple servers you can do this.
+
+```go
+c := client.New("amqp://guest:guest@localhost:5672")
+r := client.NewRequest("").WithExchange("fanout-exchange")
+
+_, err := c.Send(r)
+```
+
+Since the only custom exchange currently supported is fanout exchanges and
+fanout handlers in the server, the response value will be set to `false` when
+`WithExchange` is used.
+
+**Note**: If you request a response when sending to a fanout exchange the
+response will be the first one respondend from any of the subscribers. There is
+currently no way to accept multiple responses.
 
 ### Logger
 

@@ -44,6 +44,11 @@ func NewRequest(rk string) *Request {
 func (r *Request) WithExchange(e string) *Request {
 	r.Exchange = e
 
+	// Since we currently only support fanout exchanges as custom exchanges in
+	// the amqp-rpc application the default value for reply will be set to false
+	// if WithExchange is called.
+	r.Reply = false
+
 	return r
 }
 
