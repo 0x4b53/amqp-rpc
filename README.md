@@ -27,10 +27,10 @@ messages published to `routing_key` looks like this:
 ```go
 s := server.New("amqp://guest:guest@localhost:5672")
 
-s.AddHandler("routing_key", func(c context.Context, rw *ResponseWriter d *amqp.Delivery) {
+s.Bind(server.DirectHandler("routing_key", func(c context.Context, rw *ResponseWriter d *amqp.Delivery) {
     fmt.Println(d.Body, d.Headers)
     fmt.Fprint(rw, "Handled")
-})
+}))
 
 s.ListenAndServe()
 ```
@@ -68,32 +68,33 @@ To execute the inner handler call `next` with the correct arguments:
 
 ```go
 func myMiddle(next HandlerFunc) HandlerFunc {
+    // Preinitialization of middleware here.
 
-	// Preinitialization of middleware here.
+    return func(ctx context.Context, rw *ResponseWriter d amqp.Delivery) {
+        // Before handler execution here.
 
-	return func(ctx context.Context, rw *ResponseWriter d amqp.Delivery) {
-		// Before handler execution here.
+        // Execute the handler.
+        next(ctx, rw, d)
 
-		// Execute the handler.
-		next(ctx, rw, d)
-
-		// After execution here.
-	}
+        // After execution here.
+    }
 }
 
 s := server.New("amqp://guest:guest@localhost:5672")
 
 // Add a middleware to specific handler.
-s.AddHandler("foobar", myMiddle(HandlerFunc))
+s.Bind(server.DirectHandler("foobar", myMiddle(HandlerFunc)))
 
 // Add multiple middlewares to specific handler.
-s.AddHandler(
-    "foobar",
-    MiddlewareChain(
-        myHandler,
-        middlewareOne,
-        middlewareTwo,
-        middlewareThree,
+s.Bind(
+    server.DirectHandler(
+        "foobar",
+        MiddlewareChain(
+            myHandler,
+            middlewareOne,
+            middlewareTwo,
+            middlewareThree,
+        ),
     )
 )
 

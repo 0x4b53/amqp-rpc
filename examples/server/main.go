@@ -13,7 +13,7 @@ import (
 func main() {
 	s := server.New("amqp://guest:guest@localhost:5672/")
 
-	s.AddHandler("upper", upper)
+	s.Bind(server.DirectBinding("upper", upper))
 
 	s.ListenAndServe()
 }

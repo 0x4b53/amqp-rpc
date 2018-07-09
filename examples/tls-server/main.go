@@ -30,8 +30,8 @@ func main() {
 		TLSClientConfig: cert.TLSConfig(),
 	})
 
-	s.AddHandler("hello_world", handleHelloWorld)
-	s.AddHandler("client_usage", handleClientUsage)
+	s.Bind(server.DirectBinding("hello_world", handleHelloWorld))
+	s.Bind(server.DirectBinding("client_usage", handleClientUsage))
 
 	s.ListenAndServe()
 }

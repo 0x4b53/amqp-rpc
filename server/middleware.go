@@ -19,13 +19,13 @@ For example:
 		}
 	}
 
-	server := New("url")
+	s := New("url")
 
 	// Add middleware to specific handler.
-	server.AddHandler("foobar", myMiddle(HandlerFunc))
+	s.Bind(DirectBinding("foobar", myMiddle(HandlerFunc)))
 
 	// Add middleware to all handlers on the server.
-	server.AddMiddleware(myMiddle)
+	s.AddMiddleware(myMiddle)
 */
 type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
@@ -35,17 +35,17 @@ The middlewares will be executed in the same order as your input.
 
 For example:
 
-	server := New("url")
+	s := New("url")
 
-	server.AddHandler(
+	s.Bind(DirectBinding(
 		"foobar",
 		MiddlewareChain(
 			myHandler,
 			middlewareOne,
 			middlewareTwo,
 			middlewareThree,
-		)
-	)
+		),
+	))
 */
 func MiddlewareChain(next HandlerFunc, m ...MiddlewareFunc) HandlerFunc {
 	if len(m) == 0 {
