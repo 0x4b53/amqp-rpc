@@ -27,7 +27,7 @@ messages published to `routing_key` looks like this:
 ```go
 s := server.New("amqp://guest:guest@localhost:5672")
 
-s.Bind(server.DirectHandler("routing_key", func(c context.Context, rw *ResponseWriter d *amqp.Delivery) {
+s.Bind(server.DirectBinding("routing_key", func(c context.Context, rw *ResponseWriter d *amqp.Delivery) {
     fmt.Println(d.Body, d.Headers)
     fmt.Fprint(rw, "Handled")
 }))
@@ -43,7 +43,7 @@ fanout, topic and header.
 ```go
 s := server.New("amqp://guest:guest@localhost:5672)
 
-s.Bind(server.DirectHandler("routing_key", handleFunc))
+s.Bind(server.DirectBinding("routing_key", handleFunc))
 s.Bind(server.FanoutBinding("fanout-exchange", handleFunc))
 s.Bind(server.TopicBinding("routing_key.#", handleFunc))
 s.Bind(server.HeadersBinding(amqp.Table{"x-match": "all", "foo": "bar"}, handleFunc))
@@ -89,11 +89,11 @@ func myMiddle(next HandlerFunc) HandlerFunc {
 s := server.New("amqp://guest:guest@localhost:5672")
 
 // Add a middleware to specific handler.
-s.Bind(server.DirectHandler("foobar", myMiddle(HandlerFunc)))
+s.Bind(server.DirectBinding("foobar", myMiddle(HandlerFunc)))
 
 // Add multiple middlewares to specific handler.
 s.Bind(
-    server.DirectHandler(
+    server.DirectBinding(
         "foobar",
         MiddlewareChain(
             myHandler,
