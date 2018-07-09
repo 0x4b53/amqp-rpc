@@ -20,11 +20,11 @@ func main() {
 
 	// No need for three handlers but it's just to show that different methods
 	// will be called.
-	s1.AddExchangeHandler("", "cool-exchange", "fanout", amqp.Table{}, fanoutHandlerOne)
-	s2.AddExchangeHandler("", "cool-exchange", "fanout", amqp.Table{}, fanoutHandlerTwo)
-	s3.AddExchangeHandler("", "cool-exchange", "fanout", amqp.Table{}, fanoutHandlerThree)
+	s1.Bind(server.FanoutBinding("cool-exchange", fanoutHandlerOne))
+	s2.Bind(server.FanoutBinding("cool-exchange", fanoutHandlerTwo))
+	s3.Bind(server.FanoutBinding("cool-exchange", fanoutHandlerThree))
 
-	s1.AddHandler("times_called", timesCalledHandler)
+	s1.Bind(server.DirectBinding("times_called", timesCalledHandler))
 
 	go s1.ListenAndServe()
 	go s2.ListenAndServe()

@@ -39,14 +39,14 @@ type processedRequest struct {
 }
 
 // RPCServer represents an AMQP server used within the RPC framework. The
-// server uses handlers to map a routing key to a handler function.
+// server uses bindings to keep a list of handler functions.
 type RPCServer struct {
 	// url is the URL where the server should dial to start subscribing.
 	url string
 
-	// handlers is a list of handlerBinding that holds information about the
-	// bindings and handlers.
-	handlers []handlerBinding
+	// bindings is a list of HandlerBinding that holds information about the
+	// bindings and it's handlers.
+	bindings []HandlerBinding
 
 	// middlewares are chained and executed on request.
 	middlewares []MiddlewareFunc
@@ -79,7 +79,7 @@ type RPCServer struct {
 func New(url string) *RPCServer {
 	server := RPCServer{
 		url:         url,
-		handlers:    []handlerBinding{},
+		bindings:    []HandlerBinding{},
 		middlewares: []MiddlewareFunc{},
 		dialconfig: amqp.Config{
 			Dial: connection.DefaultDialer,
@@ -90,14 +90,6 @@ func New(url string) *RPCServer {
 	}
 
 	return &server
-}
-
-type handlerBinding struct {
-	exchangeName string
-	exchangeType string
-	routingKey   string
-	bindHeaders  amqp.Table
-	handler      HandlerFunc
 }
 
 // WithDialConfig sets the dial config used for the server.
@@ -115,25 +107,9 @@ func (s *RPCServer) AddMiddleware(m MiddlewareFunc) *RPCServer {
 	return s
 }
 
-// AddHandler adds a new handler to the RPC server.
-func (s *RPCServer) AddHandler(routingKey string, handler HandlerFunc) {
-	s.AddExchangeHandler(routingKey, "", "direct", amqp.Table{}, handler)
-}
-
-// AddExchangeHandler will add a handler for any type of exchange and routing
-// key. If no values are given for routing key or exchange name the default
-// empty string will be used. Custom bind headers are passed as amqp.Table just
-// like they are treated when binding the queue.
-func (s *RPCServer) AddExchangeHandler(routingKey, exchangeName, exchangeType string, bindHeaders amqp.Table, handler HandlerFunc) {
-	opts := handlerBinding{
-		exchangeName: exchangeName,
-		exchangeType: exchangeType,
-		routingKey:   routingKey,
-		bindHeaders:  bindHeaders,
-		handler:      handler,
-	}
-
-	s.handlers = append(s.handlers, opts)
+// Bind will add a HandlerBinding to the list of servers to serve.
+func (s *RPCServer) Bind(binding HandlerBinding) {
+	s.bindings = append(s.bindings, binding)
 }
 
 // ListenAndServe will dial the RabbitMQ message bus, set up all the channels,
@@ -172,8 +148,8 @@ func (s *RPCServer) listenAndServe() error {
 
 	defer inputCh.Close()
 
-	for _, ho := range s.handlers {
-		err := s.consume(ho, inputCh)
+	for _, binding := range s.bindings {
+		err := s.consume(binding, inputCh)
 		if err != nil {
 			return err
 		}
@@ -197,7 +173,7 @@ func (s *RPCServer) listenAndServe() error {
 	return err
 }
 
-func (s *RPCServer) consume(binding handlerBinding, inputCh *amqp.Channel) error {
+func (s *RPCServer) consume(binding HandlerBinding, inputCh *amqp.Channel) error {
 	queueName, err := s.declareAndBind(inputCh, binding)
 	if err != nil {
 		return err
@@ -218,7 +194,7 @@ func (s *RPCServer) consume(binding handlerBinding, inputCh *amqp.Channel) error
 	}
 
 	// Attach the middlewares to the handler.
-	handler := MiddlewareChain(binding.handler, s.middlewares...)
+	handler := MiddlewareChain(binding.Handler, s.middlewares...)
 
 	go s.runHandler(handler, deliveries, queueName)
 
@@ -254,9 +230,9 @@ func (s *RPCServer) runHandler(handler HandlerFunc, deliveries <-chan amqp.Deliv
 	logger.Infof("server: stopped waiting for messages on queue '%s'", queueName)
 }
 
-func (s *RPCServer) declareAndBind(inputCh *amqp.Channel, binding handlerBinding) (string, error) {
+func (s *RPCServer) declareAndBind(inputCh *amqp.Channel, binding HandlerBinding) (string, error) {
 	queue, err := inputCh.QueueDeclare(
-		binding.routingKey,
+		binding.RoutingKey,
 		s.queueDeclareSettings.Durable,
 		s.queueDeclareSettings.DeleteWhenUnused,
 		s.queueDeclareSettings.Exclusive,
@@ -268,13 +244,13 @@ func (s *RPCServer) declareAndBind(inputCh *amqp.Channel, binding handlerBinding
 		return "", err
 	}
 
-	if binding.exchangeName == "" {
+	if binding.ExchangeName == "" {
 		return queue.Name, nil
 	}
 
 	err = inputCh.ExchangeDeclare(
-		binding.exchangeName,
-		binding.exchangeType,
+		binding.ExchangeName,
+		binding.ExchangeType,
 		s.exchangeDelcareSettings.Durable,
 		s.exchangeDelcareSettings.AutoDelete,
 		s.exchangeDelcareSettings.Internal,
@@ -288,10 +264,10 @@ func (s *RPCServer) declareAndBind(inputCh *amqp.Channel, binding handlerBinding
 
 	err = inputCh.QueueBind(
 		queue.Name,
-		binding.routingKey,
-		binding.exchangeName,
+		binding.RoutingKey,
+		binding.ExchangeName,
 		s.queueDeclareSettings.NoWait, // Use same value as for declaring.
-		binding.bindHeaders,
+		binding.BindHeaders,
 	)
 
 	if err != nil {

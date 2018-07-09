@@ -14,9 +14,9 @@ func TestRequest(t *testing.T) {
 	var url = "amqp://guest:guest@localhost:5672/"
 
 	s := server.New(url)
-	s.AddHandler("myqueue", func(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+	s.Bind(server.DirectBinding("myqueue", func(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
-	})
+	}))
 
 	go s.ListenAndServe()
 

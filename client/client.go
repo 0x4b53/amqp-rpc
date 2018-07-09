@@ -380,6 +380,13 @@ func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 	// non-blocking.
 	var responseChannel chan amqp.Delivery
 
+	// Setup default content type
+	var contentType = "text/plain"
+
+	if ct, ok := r.Headers["ContentType"]; ok {
+		contentType = ct.(string)
+	}
+
 	// Only define the channel if we're going to used.
 	if r.Reply {
 		responseChannel = make(chan amqp.Delivery)
@@ -391,7 +398,7 @@ func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 		routingKey: r.RoutingKey,
 		publishing: amqp.Publishing{
 			Headers:       r.Headers,
-			ContentType:   r.Headers["ContentType"].(string),
+			ContentType:   contentType,
 			ReplyTo:       c.replyToQueueName,
 			Body:          r.Body,
 			CorrelationId: uuid.Must(uuid.NewV4()).String(),

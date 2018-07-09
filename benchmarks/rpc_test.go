@@ -24,7 +24,7 @@ func Benchmark(b *testing.B) {
 
 	s := server.New(url)
 	queueName := uuid.Must(uuid.NewV4()).String()
-	s.AddHandler(queueName, func(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {})
+	s.Bind(server.DirectBinding(queueName, func(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {}))
 
 	go s.ListenAndServe()
 	time.Sleep(1 * time.Second)

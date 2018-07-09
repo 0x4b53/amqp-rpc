@@ -24,9 +24,9 @@ func TestSendWithReply(t *testing.T) {
 
 	NotEqual(t, s.dialconfig.TLSClientConfig, nil)
 
-	s.AddHandler("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
-	})
+	}))
 
 	startServer(s)
 
@@ -52,13 +52,13 @@ func TestMiddleware(t *testing.T) {
 
 	s := New(url).AddMiddleware(mw)
 
-	s.AddHandler("allowed", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	s.Bind(DirectBinding("allowed", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprint(rw, "this is allowed")
-	})
+	}))
 
-	s.AddHandler("denied", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	s.Bind(DirectBinding("denied", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprint(rw, "this is not allowed")
-	})
+	}))
 
 	startServer(s)
 
@@ -97,10 +97,10 @@ func TestReconnect(t *testing.T) {
 	dialer, connections := testhelpers.TestDialer(t)
 	s := New(url).WithDialConfig(amqp.Config{Dial: dialer})
 
-	s.AddHandler("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		time.Sleep(500 * time.Millisecond)
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
-	})
+	}))
 
 	startServer(s)
 	c := client.New(url)
@@ -116,38 +116,6 @@ func TestReconnect(t *testing.T) {
 
 		Equal(t, reply.Body, []byte(fmt.Sprintf("Got message: %s", message)))
 	}
-}
-
-func TestFanout(t *testing.T) {
-	var timesCalled = 0
-
-	s1 := New(url)
-	s2 := New(url)
-	s3 := New(url)
-
-	fanoutHandler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-		timesCalled++
-	}
-
-	s1.AddExchangeHandler("", "fanout-exchange", "fanout", amqp.Table{}, fanoutHandler)
-	s1.AddExchangeHandler("", "fanout-exchange", "fanout", amqp.Table{}, fanoutHandler)
-	s1.AddExchangeHandler("", "fanout-exchange", "fanout", amqp.Table{}, fanoutHandler)
-
-	startServer(s1)
-	startServer(s2)
-	startServer(s3)
-
-	// Ensure all queues are declared and ready.
-	time.Sleep(1 * time.Second)
-
-	c := client.New(url)
-	_, err := c.Send(client.NewRequest("").WithExchange("fanout-exchange").WithResponse(false))
-
-	// Ensure all handlers have added to the timesCalled variable.
-	time.Sleep(1 * time.Second)
-
-	Equal(t, err, nil)
-	Equal(t, timesCalled, 3)
 }
 
 func startServer(s *RPCServer) {
