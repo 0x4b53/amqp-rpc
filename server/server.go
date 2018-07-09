@@ -48,10 +48,6 @@ type RPCServer struct {
 	// bindings and handlers.
 	handlers []handlerBinding
 
-	// fanoutHandlers is a map where the exchange is used as a map key and the
-	// value is a function of type HandleFunc.
-	fanoutHandlers map[string]HandlerFunc
-
 	// middlewares are chained and executed on request.
 	middlewares []MiddlewareFunc
 
