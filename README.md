@@ -37,20 +37,26 @@ s.ListenAndServe()
 
 This will use the default exchange (`direct`) and use the routing key as queue
 name. It's also possible to specify any kind of exchange such as topic or
-fanout by using the `AddExchangeHandler`. To add a fanout exchange with auto
-generated queue names one could do like this:
+fanout by using the `HandlerBinding` type. This package already supports direct,
+fanout, topic and header.
 
 ```go
 s := server.New("amqp://guest:guest@localhost:5672)
 
-var (
-    routingKey   string
-    exchangeName string = "fanout-exchange"
-    exchangeType string = "fanout"
-    options      amqp.Table
-)
+s.Bind(server.DirectHandler("routing_key", handleFunc))
+s.Bind(server.FanoutBinding("fanout-exchange", handleFunc))
+s.Bind(server.TopicBinding("routing_key.#", handleFunc))
+s.Bind(server.HeadersBinding(amqp.Table{"x-match": "all", "foo": "bar"}, handleFunc))
 
-s.AddExchangeHandler(routingKey, exchangeName, exchangeType, options, handleFunc)
+customBinding := server.HandlerBinding{
+    ExchangeName: "my-exchange",
+    ExchangeType: "direct",     
+    RoutingKey:   "my-key",     
+    BindHeaders:  amqp.Table{}, 
+    Handler:      handleFunc,   
+}
+
+s.Bind(customBinding)
 ```
 
 #### Middlewares
@@ -139,7 +145,9 @@ c := client.New("amqp://guest:guest@localhost:5672").
     WithDialConfig(dialConfig).
     WithTLS(cert).
     WithQueueDeclareSettings(qdSettings).
-    WithConsumeSettings(cSettings)
+    WithConsumeSettings(cSettings).
+    WithContentType("application/json").
+    WithHeaders(amqp.Table{})
 
 // Will not connect until this call.
 c.Send(client.NewRequest("queue_one"))
