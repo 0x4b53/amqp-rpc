@@ -126,21 +126,20 @@ func TestFanout(t *testing.T) {
 	s3 := New(url)
 
 	fanoutHandler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-		fmt.Println("HERE?")
 		timesCalled++
 	}
 
-	s1.AddFanoutHandler("fanout-exchange", fanoutHandler)
-	s2.AddFanoutHandler("fanout-exchange", fanoutHandler)
-	s3.AddFanoutHandler("fanout-exchange", fanoutHandler)
+	s1.AddExchangeHandler("", "fanout-exchange", "fanout", amqp.Table{}, fanoutHandler)
+	s1.AddExchangeHandler("", "fanout-exchange", "fanout", amqp.Table{}, fanoutHandler)
+	s1.AddExchangeHandler("", "fanout-exchange", "fanout", amqp.Table{}, fanoutHandler)
 
 	startServer(s1)
 	startServer(s2)
 	startServer(s3)
 
 	c := client.New(url)
-	_, err := c.Send(client.NewRequest("").WithExchange("fanout-exchange"))
-	time.Sleep(200 * time.Millisecond)
+	_, err := c.Send(client.NewRequest("").WithExchange("fanout-exchange").WithResponse(false))
+	time.Sleep(1 * time.Second)
 
 	Equal(t, err, nil)
 	Equal(t, timesCalled, 3)

@@ -20,15 +20,17 @@ func main() {
 
 	// No need for three handlers but it's just to show that different methods
 	// will be called.
-	s1.AddFanoutHandler("cool-exchange", fanoutHandlerOne)
-	s2.AddFanoutHandler("cool-exchange", fanoutHandlerTwo)
-	s3.AddFanoutHandler("cool-exchange", fanoutHandlerThree)
+	s1.AddExchangeHandler("", "cool-exchange", "fanout", amqp.Table{}, fanoutHandlerOne)
+	s2.AddExchangeHandler("", "cool-exchange", "fanout", amqp.Table{}, fanoutHandlerTwo)
+	s3.AddExchangeHandler("", "cool-exchange", "fanout", amqp.Table{}, fanoutHandlerThree)
 
 	s1.AddHandler("times_called", timesCalledHandler)
 
 	go s1.ListenAndServe()
 	go s2.ListenAndServe()
 	go s3.ListenAndServe()
+
+	time.Sleep(1 * time.Second)
 
 	c := client.New("amqp://guest:guest@localhost:5672/")
 	r := client.NewRequest("").
@@ -41,7 +43,7 @@ func main() {
 		fmt.Println("Woops: ", err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	response, err := c.Send(client.NewRequest("times_called"))
 	if err != nil {

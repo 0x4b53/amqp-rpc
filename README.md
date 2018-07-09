@@ -35,15 +35,22 @@ s.AddHandler("routing_key", func(c context.Context, rw *ResponseWriter d *amqp.D
 s.ListenAndServe()
 ```
 
-It's also possible to add handlers for a fanout exchange. When this is made the
-server will automatically create the exchange, create a queue and bind it. All
-you need to do is to add a handler for the exchange in as many server as you
-desire.
+This will use the default exchange (`direct`) and use the routing key as queue
+name. It's also possible to specify any kind of exchange such as topic or
+fanout by using the `AddExchangeHandler`. To add a fanout exchange with auto
+generated queue names one could do like this:
 
 ```go
 s := server.New("amqp://guest:guest@localhost:5672)
 
-s.AddFanoutHandler("fanout-exchange-name", handleFunc)
+var (
+    routingKey   string
+    exchangeName string = "fanout-exchange"
+    exchangeType string = "fanout"
+    options      amqp.Table
+)
+
+s.AddExchangeHandler(routingKey, exchangeName, exchangeType, options, handleFunc)
 ```
 
 #### Middlewares
@@ -137,23 +144,19 @@ c := client.New("amqp://guest:guest@localhost:5672").
 c.Send(client.NewRequest("queue_one"))
 ```
 
-You can also specify other exchanges than the default one, e.g a to send a
-request to a fanout exchange subscribed to by multiple servers you can do this.
+You can also specify other exchanges than the default one. To send a request
+to a fanout exchange subscribed to by multiple servers you can do this.
 
 ```go
 c := client.New("amqp://guest:guest@localhost:5672")
-r := client.NewRequest("").WithExchange("fanout-exchange")
+r := client.NewRequest("").WithExchange("fanout-exchange").WithResponse(false)
 
 _, err := c.Send(r)
 ```
 
-Since the only custom exchange currently supported is fanout exchanges and
-fanout handlers in the server, the response value will be set to `false` when
-`WithExchange` is used.
-
 **Note**: If you request a response when sending to a fanout exchange the
 response will be the first one respondend from any of the subscribers. There is
-currently no way to accept multiple responses.
+currently no way to accept multiple responses or responses in a specific order.
 
 ### Logger
 

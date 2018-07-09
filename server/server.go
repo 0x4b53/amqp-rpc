@@ -44,9 +44,9 @@ type RPCServer struct {
 	// url is the URL where the server should dial to start subscribing.
 	url string
 
-	// handlers is a map where the routing key is used as map key and the value
-	// is a function of type HandlerFunc.
-	handlers map[string]HandlerFunc
+	// handlers is a list of handlerBinding that holds information about the
+	// bindings and handlers.
+	handlers []handlerBinding
 
 	// fanoutHandlers is a map where the exchange is used as a map key and the
 	// value is a function of type HandleFunc.
@@ -82,10 +82,9 @@ type RPCServer struct {
 // New will return a pointer to a new RPCServer.
 func New(url string) *RPCServer {
 	server := RPCServer{
-		url:            url,
-		handlers:       map[string]HandlerFunc{},
-		fanoutHandlers: map[string]HandlerFunc{},
-		middlewares:    []MiddlewareFunc{},
+		url:         url,
+		handlers:    []handlerBinding{},
+		middlewares: []MiddlewareFunc{},
 		dialconfig: amqp.Config{
 			Dial: connection.DefaultDialer,
 		},
@@ -95,6 +94,14 @@ func New(url string) *RPCServer {
 	}
 
 	return &server
+}
+
+type handlerBinding struct {
+	exchangeName string
+	exchangeType string
+	routingKey   string
+	bindHeaders  amqp.Table
+	handler      HandlerFunc
 }
 
 // WithDialConfig sets the dial config used for the server.
@@ -113,14 +120,20 @@ func (s *RPCServer) AddMiddleware(m MiddlewareFunc) *RPCServer {
 }
 
 // AddHandler adds a new handler to the RPC server.
-func (s *RPCServer) AddHandler(queueName string, handler HandlerFunc) {
-	s.handlers[queueName] = handler
+func (s *RPCServer) AddHandler(routingKey string, handler HandlerFunc) {
+	s.AddExchangeHandler(routingKey, "", "direct", amqp.Table{}, handler)
 }
 
-// AddFanoutHandler add a new handler to the RPC server wihch will work as a
-// fanout handler on a given exchange.
-func (s *RPCServer) AddFanoutHandler(exchange string, handler HandlerFunc) {
-	s.fanoutHandlers[exchange] = handler
+func (s *RPCServer) AddExchangeHandler(routingKey, exchangeName, exchangeType string, bindHeaders amqp.Table, handler HandlerFunc) {
+	opts := handlerBinding{
+		exchangeName: exchangeName,
+		exchangeType: exchangeType,
+		routingKey:   routingKey,
+		bindHeaders:  bindHeaders,
+		handler:      handler,
+	}
+
+	s.handlers = append(s.handlers, opts)
 }
 
 // ListenAndServe will dial the RabbitMQ message bus, set up all the channels,
@@ -159,15 +172,8 @@ func (s *RPCServer) listenAndServe() error {
 
 	defer inputCh.Close()
 
-	for queueName, handler := range s.handlers {
-		err := s.consume(queueName, "", handler, inputCh)
-		if err != nil {
-			return err
-		}
-	}
-
-	for exchangeName, handler := range s.fanoutHandlers {
-		err := s.consume("", exchangeName, handler, inputCh)
+	for _, ho := range s.handlers {
+		err := s.consume(ho, inputCh)
 		if err != nil {
 			return err
 		}
@@ -191,28 +197,14 @@ func (s *RPCServer) listenAndServe() error {
 	return err
 }
 
-func (s *RPCServer) consume(queueName, exchangeName string, handler HandlerFunc, inputCh *amqp.Channel) error {
-	queue, err := inputCh.QueueDeclare(
-		queueName,
-		s.queueDeclareSettings.Durable,
-		s.queueDeclareSettings.DeleteWhenUnused,
-		s.queueDeclareSettings.Exclusive,
-		s.queueDeclareSettings.NoWait,
-		s.queueDeclareSettings.Args,
-	)
-
+func (s *RPCServer) consume(binding handlerBinding, inputCh *amqp.Channel) error {
+	queueName, err := s.declareAndBind(inputCh, binding)
 	if err != nil {
 		return err
 	}
 
-	if exchangeName != "" {
-		if err = s.declareAndBindFanout(inputCh, exchangeName, queue.Name); err != nil {
-			return err
-		}
-	}
-
 	deliveries, err := inputCh.Consume(
-		queue.Name,
+		queueName,
 		s.consumeSettings.Consumer,
 		s.consumeSettings.AutoAck,
 		s.consumeSettings.Exclusive,
@@ -226,9 +218,9 @@ func (s *RPCServer) consume(queueName, exchangeName string, handler HandlerFunc,
 	}
 
 	// Attach the middlewares to the handler.
-	handler = MiddlewareChain(handler, s.middlewares...)
+	handler := MiddlewareChain(binding.handler, s.middlewares...)
 
-	go s.runHandler(handler, deliveries, queue.Name)
+	go s.runHandler(handler, deliveries, queueName)
 
 	return nil
 }
@@ -262,10 +254,27 @@ func (s *RPCServer) runHandler(handler HandlerFunc, deliveries <-chan amqp.Deliv
 	logger.Infof("server: stopped waiting for messages on queue '%s'", queueName)
 }
 
-func (s *RPCServer) declareAndBindFanout(inputCh *amqp.Channel, exchangeName, queueName string) error {
-	err := inputCh.ExchangeDeclare(
-		exchangeName,
-		"fanout",
+func (s *RPCServer) declareAndBind(inputCh *amqp.Channel, binding handlerBinding) (string, error) {
+	queue, err := inputCh.QueueDeclare(
+		binding.routingKey,
+		s.queueDeclareSettings.Durable,
+		s.queueDeclareSettings.DeleteWhenUnused,
+		s.queueDeclareSettings.Exclusive,
+		s.queueDeclareSettings.NoWait,
+		s.queueDeclareSettings.Args,
+	)
+
+	if err != nil {
+		return "", err
+	}
+
+	if binding.exchangeName == "" {
+		return queue.Name, nil
+	}
+
+	err = inputCh.ExchangeDeclare(
+		binding.exchangeName,
+		binding.exchangeType,
 		s.exchangeDelcareSettings.Durable,
 		s.exchangeDelcareSettings.AutoDelete,
 		s.exchangeDelcareSettings.Internal,
@@ -274,22 +283,22 @@ func (s *RPCServer) declareAndBindFanout(inputCh *amqp.Channel, exchangeName, qu
 	)
 
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	err = inputCh.QueueBind(
-		queueName,
-		"",
-		exchangeName,
+		queue.Name,
+		binding.routingKey,
+		binding.exchangeName,
 		false,
-		nil,
+		binding.bindHeaders,
 	)
 
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	return nil
+	return queue.Name, nil
 }
 
 func (s *RPCServer) responder(outCh *amqp.Channel) error {
