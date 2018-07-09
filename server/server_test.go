@@ -137,8 +137,13 @@ func TestFanout(t *testing.T) {
 	startServer(s2)
 	startServer(s3)
 
+	// Ensure all queues are declared and ready.
+	time.Sleep(1 * time.Second)
+
 	c := client.New(url)
 	_, err := c.Send(client.NewRequest("").WithExchange("fanout-exchange").WithResponse(false))
+
+	// Ensure all handlers have added to the timesCalled variable.
 	time.Sleep(1 * time.Second)
 
 	Equal(t, err, nil)
