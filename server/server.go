@@ -124,6 +124,10 @@ func (s *RPCServer) AddHandler(routingKey string, handler HandlerFunc) {
 	s.AddExchangeHandler(routingKey, "", "direct", amqp.Table{}, handler)
 }
 
+// AddExchangeHandler will add a handler for any type of exchange and routing
+// key. If no values are given for routing key or exchange name the default
+// empty string will be used. Custom bind headers are passed as amqp.Table just
+// like they are treated when binding the queue.
 func (s *RPCServer) AddExchangeHandler(routingKey, exchangeName, exchangeType string, bindHeaders amqp.Table, handler HandlerFunc) {
 	opts := handlerBinding{
 		exchangeName: exchangeName,
@@ -290,7 +294,7 @@ func (s *RPCServer) declareAndBind(inputCh *amqp.Channel, binding handlerBinding
 		queue.Name,
 		binding.routingKey,
 		binding.exchangeName,
-		false,
+		s.queueDeclareSettings.NoWait, // Use same value as for declaring.
 		binding.bindHeaders,
 	)
 
