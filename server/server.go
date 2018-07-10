@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
+	uuid "github.com/satori/go.uuid"
 	"github.com/streadway/amqp"
 
 	"github.com/bombsimon/amqp-rpc/connection"
@@ -20,8 +22,10 @@ const (
 )
 
 var (
-	// ErrResponseChClosed is an error representing a closed response channel.
-	ErrResponseChClosed = errors.New("Channel closed")
+	// ErrUnexpectedConnClosed is returned by ListenAndServe() if the server
+	// shuts down without calling Stop() and if AMQP does not give an error
+	// when said shutdown happens.
+	ErrUnexpectedConnClosed = errors.New("unexpected connection close without specific error")
 )
 
 // HandlerFunc is the function that handles all request based on the routing key.
@@ -73,6 +77,9 @@ type RPCServer struct {
 	// consumeSetting is configuration used when consuming from the message
 	// bus.
 	consumeSettings connection.ConsumeSettings
+
+	// These channels are used to signal shutdowns when calling Stop().
+	stopChan chan struct{} // Closed when Stop() is called.
 }
 
 // New will return a pointer to a new RPCServer.
@@ -117,11 +124,12 @@ func (s *RPCServer) Bind(binding HandlerBinding) {
 // server is always connected.
 func (s *RPCServer) ListenAndServe() {
 	s.responses = make(chan processedRequest)
+	s.stopChan = make(chan struct{})
 
 	for {
 		err := s.listenAndServe()
 		if err != nil {
-			logger.Warnf("server: got error: %s, will reconnect in %d second(s)", err, 0.5)
+			logger.Warnf("server: got error: %s, will reconnect in %v second(s)", err, 0.5)
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
@@ -134,54 +142,115 @@ func (s *RPCServer) ListenAndServe() {
 func (s *RPCServer) listenAndServe() error {
 	logger.Infof("server: staring listener: %s", s.url)
 
-	conn, err := amqp.DialConfig(s.url, s.dialconfig)
+	// We are using two different connections here because:
+	// "It's advisable to use separate connections for Channel.Publish and
+	// Channel.Consume so not to have TCP pushback on publishing affect the
+	// ability to consume messages [...]"
+	// -- https://godoc.org/github.com/streadway/amqp#Channel.Consume
+	inputConn, outputConn, err := createConnections(s.url, s.dialconfig)
 	if err != nil {
 		return err
 	}
+	defer inputConn.Close()
+	defer outputConn.Close()
 
-	defer conn.Close()
-
-	inputCh, err := conn.Channel()
+	inputCh, outputCh, err := createChannels(inputConn, outputConn)
 	if err != nil {
 		return err
 	}
-
 	defer inputCh.Close()
+	defer outputCh.Close()
 
-	for _, binding := range s.bindings {
-		err := s.consume(binding, inputCh)
+	// Setup a WaitGroup for use by consume(). This WaitGroup will be 0
+	// when all consumers are finished consuming messages.
+	consumersWg := sync.WaitGroup{}
+
+	// consumerTags is used when we later want to tell AMQP that we want to cancel our consumers.
+	consumerTags, err := s.startConsumers(inputCh, &consumersWg)
+	if err != nil {
+		return err
+	}
+
+	// This WaitGroup will reach 0 when the responder() has finished sending all responses.
+	responderWg := sync.WaitGroup{}
+	go s.responder(outputCh, &responderWg)
+
+	err = s.waitForShutdown(inputConn, outputConn, inputCh, outputCh)
+	if err != nil {
+		return err
+	}
+
+	// 1. Tell amqp we want to shut down by cancelling all the consumers.
+	for _, consumerTag := range consumerTags {
+		err = inputCh.Cancel(consumerTag, false)
 		if err != nil {
 			return err
 		}
 	}
 
-	outputCh, err := conn.Channel()
-	if err != nil {
-		return err
-	}
+	// 2. We've told amqp to stop delivering messages, now we wait for all
+	// the consumers to finish inflight messages.
+	consumersWg.Wait()
 
-	defer outputCh.Close()
+	// 3. Close the responses chan and wait until the consumers are finished.
+	// We might still have responses we want to send.
+	close(s.responses)
+	responderWg.Wait()
 
-	go s.responder(outputCh)
+	// 4. We have no more messages incoming and we've sent all our responses.
+	// The closing of connections and channels are defered so we can just return now.
 
-	err, ok := <-conn.NotifyClose(make(chan *amqp.Error))
-	if !ok {
-		// The connection was closed gracefully.
-		return nil
-	}
-	// The connection wasn't closed gracefully.
-	return err
+	return nil
 }
 
-func (s *RPCServer) consume(binding HandlerBinding, inputCh *amqp.Channel) error {
-	queueName, err := s.declareAndBind(inputCh, binding)
-	if err != nil {
+func (s *RPCServer) waitForShutdown(inputConn, outputConn *amqp.Connection, inputCh, outputCh *amqp.Channel) error {
+	inputConnClosed := inputConn.NotifyClose(make(chan *amqp.Error))
+	outputConnClosed := outputConn.NotifyClose(make(chan *amqp.Error))
+
+	// Wait for server shutdown.
+	select {
+	// Check to see if the connections are closed without .Stop() beeing called first.
+	// This counts as an error even if AMQP thinks this was a graceful shutdown.
+	case err, ok := <-inputConnClosed:
+		if !ok {
+			return ErrUnexpectedConnClosed
+		}
 		return err
+	case err, ok := <-outputConnClosed:
+		if !ok {
+			return ErrUnexpectedConnClosed
+		}
+		return err
+	// stopChan will be closed when .Stop() is called.
+	case <-s.stopChan:
+		return nil
+	}
+}
+
+func (s *RPCServer) startConsumers(inputCh *amqp.Channel, wg *sync.WaitGroup) ([]string, error) {
+	consumerTags := []string{}
+	for _, binding := range s.bindings {
+		consumerTag, err := s.consume(binding, inputCh, wg)
+		if err != nil {
+			return []string{}, err
+		}
+
+		consumerTags = append(consumerTags, consumerTag)
 	}
 
+	return consumerTags, nil
+}
+
+func (s *RPCServer) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync.WaitGroup) (string, error) {
+	queueName, err := s.declareAndBind(inputCh, binding)
+	if err != nil {
+		return "", err
+	}
+
+	consumerTag := uuid.Must(uuid.NewV4()).String()
 	deliveries, err := inputCh.Consume(
 		queueName,
-		s.consumeSettings.Consumer,
+		consumerTag,
 		s.consumeSettings.AutoAck,
 		s.consumeSettings.Exclusive,
 		s.consumeSettings.NoLocal,
@@ -190,18 +259,21 @@ func (s *RPCServer) consume(binding HandlerBinding, inputCh *amqp.Channel) error
 	)
 
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Attach the middlewares to the handler.
 	handler := MiddlewareChain(binding.Handler, s.middlewares...)
 
-	go s.runHandler(handler, deliveries, queueName)
+	go s.runHandler(handler, deliveries, queueName, wg)
 
-	return nil
+	return consumerTag, nil
 }
 
-func (s *RPCServer) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery, queueName string) {
+func (s *RPCServer) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery, queueName string, wg *sync.WaitGroup) {
+	wg.Add(1)
+	defer wg.Done()
+
 	logger.Infof("server: waiting for messages on queue '%s'", queueName)
 
 	for delivery := range deliveries {
@@ -216,6 +288,7 @@ func (s *RPCServer) runHandler(handler HandlerFunc, deliveries <-chan amqp.Deliv
 
 		ctx := context.WithValue(context.Background(), CtxQueueName, queueName)
 
+		// TODO: Recover panic in handler. And use delivery.Nack() so amqp will retry.
 		handler(ctx, &rw, delivery)
 		delivery.Ack(false)
 
@@ -277,11 +350,14 @@ func (s *RPCServer) declareAndBind(inputCh *amqp.Channel, binding HandlerBinding
 	return queue.Name, nil
 }
 
-func (s *RPCServer) responder(outCh *amqp.Channel) error {
+func (s *RPCServer) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
+	wg.Add(1)
+	defer wg.Done()
+
 	for {
 		response, ok := <-s.responses
 		if !ok {
-			return ErrResponseChClosed
+			return
 		}
 
 		err := outCh.Publish(
@@ -293,15 +369,53 @@ func (s *RPCServer) responder(outCh *amqp.Channel) error {
 		)
 
 		if err != nil {
-			logger.Warnf("server: could not publish response, will retry later")
-			s.responses <- response
-			return err
-		}
+			// An error here means that the connection that outCh is using
+			// isn't working properly. We trust that this function will be
+			// restarted by listenAndServe in this case.
 
-		logger.Infof(
-			"server: successfully published response %v to %v",
-			response.publishing.CorrelationId,
-			response.replyTo,
-		)
+			// We resend the response here so that other running goroutines
+			// that hav a working outCh can pick up this response.
+			s.responses <- response
+		}
 	}
+}
+
+// Stop will gracefully disconnect from AMQP after draining first incoming then
+// outgoing messages. This method won't wait for server shutdown to complete,
+// you should instead wait for ListenAndServe to exit.
+func (s *RPCServer) Stop() {
+	close(s.stopChan)
+}
+
+func createConnections(url string, config amqp.Config) (*amqp.Connection, *amqp.Connection, error) {
+	var (
+		conn1 *amqp.Connection
+		conn2 *amqp.Connection
+		err   error
+	)
+	conn1, err = amqp.DialConfig(url, config)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	conn2, err = amqp.DialConfig(url, config)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return conn1, conn2, nil
+}
+
+func createChannels(inputConn, outputConn *amqp.Connection) (*amqp.Channel, *amqp.Channel, error) {
+	inputCh, err := inputConn.Channel()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	outputCh, err := outputConn.Channel()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return inputCh, outputCh, nil
 }

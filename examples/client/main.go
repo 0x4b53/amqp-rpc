@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"time"
 
 	"log"
 
@@ -20,6 +21,8 @@ func main() {
 	c := client.New("amqp://guest:guest@localhost:5672/")
 	reader := bufio.NewReader(os.Stdin)
 
+	go heartbeat(c)
+
 	for {
 		fmt.Print("Enter text: ")
 		text, _ := reader.ReadString('\n')
@@ -30,6 +33,17 @@ func main() {
 		} else {
 			fmt.Println(string(response.Body))
 		}
+	}
+}
 
+func heartbeat(c *client.Client) {
+	for {
+		_, err := c.Send(
+			client.NewRequest("beat").WithStringBody(time.Now().String()),
+		)
+		if err != nil {
+			fmt.Println("Heartbeat error: ", err)
+		}
+		time.Sleep(1 * time.Second)
 	}
 }

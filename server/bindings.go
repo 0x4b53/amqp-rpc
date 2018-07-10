@@ -1,6 +1,8 @@
 package server
 
-import "github.com/streadway/amqp"
+import (
+	"github.com/streadway/amqp"
+)
 
 // HandlerBinding holds information about how an exchange and a queue should be
 // declared and bound. If the ExchangeName is not defined (an empty string), the

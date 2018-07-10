@@ -26,9 +26,12 @@ func TestFanout(t *testing.T) {
 	s2.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
 	s3.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
 
-	startServer(s1)
-	startServer(s2)
-	startServer(s3)
+	stop1 := startServer(s1)
+	stop2 := startServer(s2)
+	stop3 := startServer(s3)
+	defer stop1()
+	defer stop2()
+	defer stop3()
 
 	// Ensure all queues are declared and ready.
 	time.Sleep(1 * time.Second)
@@ -44,50 +47,66 @@ func TestFanout(t *testing.T) {
 }
 
 func TestTopic(t *testing.T) {
-	var wasCalled = make(chan bool)
+	wasCalled := map[string]chan string{
+		"foo.#": make(chan string),
+		"foo.*": make(chan string),
+		"baz.*": make(chan string),
+	}
 
 	s := New(url)
 	c := client.New(url)
 
-	handler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-		wasCalled <- true
+	s.Bind(TopicBinding("foo.#", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		wasCalled["foo.#"] <- string(d.Body)
+	}))
+	s.Bind(TopicBinding("foo.*", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		wasCalled["foo.*"] <- string(d.Body)
+	}))
+	s.Bind(TopicBinding("baz.*", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		wasCalled["baz.*"] <- string(d.Body)
+	}))
+
+	stop := startServer(s)
+	defer stop()
+
+	cases := []struct {
+		request string
+		called  map[string]bool
+	}{
+		{
+			request: "foo.bar",
+			called:  map[string]bool{"foo.#": true, "foo.*": true, "baz.*": false},
+		},
+		{
+			request: "foo.bar.baz",
+			called:  map[string]bool{"foo.#": true, "foo.*": false, "baz.*": false},
+		},
+		{
+			request: "baz.bar.foo",
+			called:  map[string]bool{"foo.#": false, "foo.*": false, "baz.*": false},
+		},
 	}
 
-	handlerNotMatched := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-		// We should never fail because this should not match
-		t.Fail()
+	for _, tc := range cases {
+		t.Run(tc.request, func(t *testing.T) {
+			_, err := c.Send(client.NewRequest(tc.request).WithStringBody(tc.request).WithExchange("amq.topic").WithResponse(false))
+			Equal(t, err, nil)
+
+			for key, expectCalled := range tc.called {
+				select {
+				case body := <-wasCalled[key]:
+					if expectCalled != true {
+						t.Errorf("%s WAS called on %s with body %s", key, tc.request, body)
+					}
+					Equal(t, body, tc.request)
+				case <-time.After(10 * time.Millisecond):
+					if expectCalled == true {
+						t.Errorf("%s NOT called on %s", key, tc.request)
+					}
+				}
+			}
+		})
 	}
-
-	s.Bind(TopicBinding("somewhere.#", handler))
-	s.Bind(TopicBinding("somewhere.*", handler))
-	s.Bind(TopicBinding("not_here.*", handlerNotMatched))
-
-	startServer(s)
-
-	// Ensure 'somewhere.*' matches 'somewhere.there'.
-	_, err := c.Send(client.NewRequest("somewhere.there").WithExchange("amq.topic").WithResponse(false))
-	Equal(t, err, nil)
-
-	called, ok := <-wasCalled
-
-	Equal(t, ok, true)
-	Equal(t, called, true)
-
-	// Ensure 'somewhere.#' matches 'somewhere.over.there'.
-	_, err = c.Send(client.NewRequest("somewhere.over.there").WithExchange("amq.topic").WithResponse(false))
-	Equal(t, err, nil)
-
-	called, ok = <-wasCalled
-
-	Equal(t, ok, true)
-	Equal(t, called, true)
-
-	// Ensure 'not_here.*' does NOT match 'not_here.or.there'.
-	_, err = c.Send(client.NewRequest("not_here.or.there").WithExchange("amq.topic").WithResponse(false))
-	Equal(t, err, nil)
-
-	// Ensure we don't exit before potential failures.
-	time.Sleep(100 * time.Millisecond)
 }
 
 func TestHeaders(t *testing.T) {
@@ -105,7 +124,8 @@ func TestHeaders(t *testing.T) {
 
 	s.Bind(HeadersBinding(h, handler))
 
-	startServer(s)
+	stop := startServer(s)
+	defer stop()
 
 	// Ensure 'somewhere.*' matches 'somewhere.there'.
 	response, err := c.Send(client.NewRequest("").WithExchange("amq.headers").WithHeaders(amqp.Table{"foo": "bar"}))
