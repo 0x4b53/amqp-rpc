@@ -23,8 +23,8 @@ func TestFanout(t *testing.T) {
 	}
 
 	s1.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
-	s1.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
-	s1.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
+	s2.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
+	s3.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
 
 	startServer(s1)
 	startServer(s2)
