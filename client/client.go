@@ -17,6 +17,14 @@ var (
 	ErrTimeout = errors.New("request timed out")
 )
 
+// PreSendFunc represents a function that is called before a request is being
+// sent to the broker.
+type PreSendFunc func(r *Request)
+
+// PostSendFunc represents a function that is called after a request has been
+// processed.
+type PostSendFunc func(d *amqp.Delivery, e error)
+
 // Client represents an AMQP client used within a RPC framework.
 // This client can be used to communicate with RPC servers.
 type Client struct {
@@ -74,6 +82,14 @@ type Client struct {
 	// but will be set to true after the runner is called the first time the
 	// client needs to connect.
 	publisherRunning bool
+
+	// preSendMiddlewares holds slice of middlewares to run before the client
+	// sends any requests.
+	preSendMiddlewares []MiddlewarePreFunc
+
+	// postSendMiddlewares holds slice of middlewares to run after the client
+	// sends any requests.
+	postSendMiddlewares []MiddlewarePostFunc
 }
 
 // publishingRequestMessages is a type that holds information about each request
@@ -105,10 +121,12 @@ func New(url string) *Client {
 		dialconfig: amqp.Config{
 			Dial: connection.DefaultDialer,
 		},
-		clientMessages:     make(chan *publishingRequestMessages),
-		correlationMapping: make(map[string]chan amqp.Delivery),
-		mu:                 sync.Mutex{},
-		replyToQueueName:   "reply-to-" + uuid.Must(uuid.NewV4()).String(),
+		clientMessages:      make(chan *publishingRequestMessages),
+		correlationMapping:  make(map[string]chan amqp.Delivery),
+		mu:                  sync.Mutex{},
+		replyToQueueName:    "reply-to-" + uuid.Must(uuid.NewV4()).String(),
+		preSendMiddlewares:  []MiddlewarePreFunc{},
+		postSendMiddlewares: []MiddlewarePostFunc{},
 	}
 
 	// Set default values to use when crearing channels and consumers.
@@ -150,6 +168,22 @@ func (c *Client) WithConsumeSettings(s connection.ConsumeSettings) *Client {
 // WithTimeout will set the client timeout used when publishing messages.
 func (c *Client) WithTimeout(t time.Duration) *Client {
 	c.Timeout = t
+
+	return c
+}
+
+// AddPreSendMiddleware will add a middleware which will be executed before
+// each send command.
+func (c *Client) AddPreSendMiddleware(m MiddlewarePreFunc) *Client {
+	c.preSendMiddlewares = append(c.preSendMiddlewares, m)
+
+	return c
+}
+
+// AddPostSendMiddleware will add a middleware which will be executed after
+// each send command.
+func (c *Client) AddPostSendMiddleware(m MiddlewarePostFunc) *Client {
+	c.postSendMiddlewares = append(c.postSendMiddlewares, m)
 
 	return c
 }
@@ -376,6 +410,8 @@ func (c *Client) ensureRunning() {
 func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 	c.ensureRunning()
 
+	MiddlewarePreChain(func(r *Request) {}, c.preSendMiddlewares...)(r)
+
 	// Init a channel to receive responses. A channel is used to be
 	// non-blocking.
 	var responseChannel chan amqp.Delivery
@@ -434,6 +470,8 @@ func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 	}
 
 	logger.Info("client: got delivery")
+
+	MiddlewarePostChain(func(d *amqp.Delivery, e error) {}, c.postSendMiddlewares...)(&delivery, nil)
 
 	return &delivery, nil
 }
