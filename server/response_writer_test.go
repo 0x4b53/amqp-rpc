@@ -36,4 +36,16 @@ func TestResponseWriter(t *testing.T) {
 	// Writing multiple times is OK.
 	fmt.Fprint(rw, "Bar")
 	Equal(t, rw.Publishing().Body, []byte("FooBar"))
+
+	// Writing header will set the header of the publishing
+	rw.WriteHeader("some-header", "writing")
+	Equal(t, rw.Publishing().Headers["some-header"], "writing")
+
+	// Overwrite works
+	rw.WriteHeader("some-header", "writing-again")
+	Equal(t, rw.Publishing().Headers["some-header"], "writing-again")
+
+	// Writing other types than strings works
+	rw.WriteHeader("some-header", 1)
+	Equal(t, rw.Publishing().Headers["some-header"], 1)
 }
