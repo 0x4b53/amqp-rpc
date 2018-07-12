@@ -25,6 +25,15 @@ func (rw *ResponseWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// WriteHeader will write a header for the specified key.
+func (rw *ResponseWriter) WriteHeader(header string, value interface{}) {
+	if rw.publishing.Headers == nil {
+		rw.publishing.Headers = map[string]interface{}{}
+	}
+
+	rw.publishing.Headers[header] = value
+}
+
 // Publishing returns the internal amqp.Publishing that are used for the
 // response, useful for modification.
 func (rw *ResponseWriter) Publishing() *amqp.Publishing {
