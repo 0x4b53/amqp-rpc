@@ -43,4 +43,21 @@ func TestRequest(t *testing.T) {
 	response, err = client.Send(request)
 	Equal(t, err, nil)
 	Equal(t, response, nil)
+
+	request = NewRequest("myqueue").
+		WithStringBody("original message").
+		AddMiddleware(myMiddle)
+
+	response, err = client.Send(request)
+	Equal(t, err, nil)
+	NotEqual(t, response.Body, []byte("Got message: original message"))
+	Equal(t, response.Body, []byte("Got message: middleware message"))
+}
+
+func myMiddle(next SendFunc) SendFunc {
+	return func(r *Request) (*amqp.Delivery, error) {
+		r.Body = []byte("middleware message")
+
+		return next(r)
+	}
 }

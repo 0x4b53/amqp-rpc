@@ -1,68 +1,63 @@
 package client
 
 import (
+	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
 
-func preSend(next PreSendFunc) PreSendFunc {
-	return func(r *Request) {
-		r.Headers["unit"] = "testing"
+func traceMiddleware(ID int, b *bytes.Buffer) MiddlewareFunc {
+	return func(next SendFunc) SendFunc {
+		return func(r *Request) (*amqp.Delivery, error) {
+			fmt.Fprint(b, ID)
+			res, err := next(r)
+			fmt.Fprint(b, ID)
 
-		next(r)
-	}
-}
-func postSend(next PostSendFunc) PostSendFunc {
-	return func(d *amqp.Delivery, e error) {
-		d.Body = []byte("unit-testing")
-		next(d, e)
+			return res, err
+		}
 	}
 }
 
 func TestMiddlewareChain(t *testing.T) {
 	var (
-		mpre = []MiddlewarePreFunc{preSend}
-		req  = NewRequest("")
+		req = NewRequest("")
+		b   = bytes.Buffer{}
 	)
 
-	MiddlewarePreChain(func(r *Request) {}, mpre...)(req)
+	mw := MiddlewareChain(
+		func(rx *Request) (*amqp.Delivery, error) {
+			fmt.Fprintf(&b, "X")
 
-	Equal(t, req.Headers["unit"], "testing")
+			dx := amqp.Delivery{}
 
-	var (
-		del   = amqp.Delivery{}
-		mpost = []MiddlewarePostFunc{postSend}
+			return &dx, nil
+		},
+		traceMiddleware(1, &b),
+		traceMiddleware(2, &b),
 	)
 
-	MiddlewarePostChain(func(d *amqp.Delivery, e error) {}, mpost...)(&del, nil)
+	res, err := mw(req)
 
-	Equal(t, del.Body, []byte("unit-testing"))
+	Equal(t, err, nil)
+	NotEqual(t, res, nil)
+	Equal(t, b.Bytes(), []byte("12X21"))
 }
 
 func TestClientAddMiddlewares(t *testing.T) {
 	c := New("")
 
-	Equal(t, len(c.preSendMiddlewares), 0)
-	Equal(t, len(c.postSendMiddlewares), 0)
+	Equal(t, len(c.middlewares), 0)
 
-	c.AddPreSendMiddleware(
-		func(n PreSendFunc) PreSendFunc {
-			return func(r *Request) {
-				n(r)
+	c.AddMiddleware(
+		func(n SendFunc) SendFunc {
+			return func(r *Request) (*amqp.Delivery, error) {
+				return n(r)
 			}
 		},
 	)
 
-	c.AddPostSendMiddleware(
-		func(n PostSendFunc) PostSendFunc {
-			return func(d *amqp.Delivery, e error) {
-				n(d, e)
-			}
-		},
-	)
-
-	Equal(t, len(c.preSendMiddlewares), 1)
-	Equal(t, len(c.postSendMiddlewares), 1)
+	Equal(t, len(c.middlewares), 1)
 }

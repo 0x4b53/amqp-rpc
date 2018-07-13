@@ -1,5 +1,14 @@
 package main
 
+/*
+This example demonstrates how middlewares can be used to plug code before or
+after requests ar sent and/or received.
+
+This example uses the word "password" but is meant to demonstrate a kind of
+authorization mechanism with i.e. JWT which is exchanged on the server side for
+each request.
+*/
+
 import (
 	"context"
 	"fmt"
@@ -14,8 +23,8 @@ import (
 )
 
 var (
-	randomHeader string
-	url          = "amqp://guest:guest@localhost:5672"
+	password string
+	url      = "amqp://guest:guest@localhost:5672"
 )
 
 func main() {
@@ -25,48 +34,57 @@ func main() {
 	logger.SetInfoLogger(l)
 	logger.SetWarnLogger(l)
 
-	c := client.New(url).
-		AddPreSendMiddleware(setPassword).
-		AddPostSendMiddleware(exchangePassword)
-
+	c := client.New(url).AddMiddleware(handlePassword)
 	r := client.NewRequest("exchanger")
 
 	for _, i := range []int{1, 2, 3} {
-		fmt.Printf("%-10s %d: randomHeader is '%s'\n", "Request", i, randomHeader)
+		fmt.Printf("%-10s %d: password is '%s'\n", "Request", i, password)
 
 		resp, err := c.Send(r)
 		if err != nil {
 			fmt.Println("Woops: ", err)
 		} else {
-			fmt.Printf("%-10s %d: randomHeader is '%s' (body is '%s')\n", "Response", i, resp.Headers["randomHeader"], resp.Body)
+			fmt.Printf("%-10s %d: password is '%s' (body is '%s')\n", "Response", i, resp.Headers["password"], resp.Body)
 		}
 	}
-}
 
-// Middleware executing before send in client.
-func setPassword(next client.PreSendFunc) client.PreSendFunc {
-	// This coud simulate the usage of i.e. a JWT that needs to be passed in
-	// each requests and exchange at the server.
-	if randomHeader == "" {
-		fmt.Println(">> I'm being executed before Send(), I'm ensuring you've got a randomHeader!")
-		randomHeader = uuid.Must(uuid.NewV4()).String()
+	r2 := client.NewRequest("exchanger").AddMiddleware(
+		func(next client.SendFunc) client.SendFunc {
+			return func(r *client.Request) (*amqp.Delivery, error) {
+				fmt.Println(">> I'm being executed before Send(), but only for ONE request!")
+				r.Headers["password"] = "i am custom"
+
+				return next(r)
+			}
+		},
+	)
+
+	resp, err := c.Send(r2)
+	if err != nil {
+		fmt.Println("Whoops: ", err)
 	}
 
-	return func(r *client.Request) {
-		r.Headers["randomHeader"] = randomHeader
+	fmt.Printf("%-10s %d: this request got custom body '%s'\n", "Request", 4, resp.Body)
 
-		next(r)
-	}
 }
 
-// Middleware executing after send in client.
-func exchangePassword(next client.PostSendFunc) client.PostSendFunc {
-	return func(d *amqp.Delivery, e error) {
-		if newHeader, ok := d.Headers["randomHeader"].(string); ok {
-			randomHeader = newHeader
+func handlePassword(next client.SendFunc) client.SendFunc {
+	return func(r *client.Request) (*amqp.Delivery, error) {
+		if password == "" {
+			fmt.Println(">> I'm being executed before Send(), I'm ensuring you've got a password header!")
+			password = uuid.Must(uuid.NewV4()).String()
 		}
 
-		next(d, e)
+		r.Headers["password"] = password
+
+		// This will always run the clients send function in the end.
+		d, e := next(r)
+
+		if newPassword, ok := d.Headers["password"].(string); ok {
+			password = newPassword
+		}
+
+		return d, e
 	}
 }
 
@@ -75,7 +93,7 @@ func exchangeHeader(next server.HandlerFunc) server.HandlerFunc {
 	return func(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
 		next(ctx, rw, d)
 
-		rw.WriteHeader("randomHeader", uuid.Must(uuid.NewV4()).String())
+		rw.WriteHeader("password", uuid.Must(uuid.NewV4()).String())
 	}
 }
 
@@ -85,7 +103,7 @@ func startServer() {
 	s.AddMiddleware(exchangeHeader)
 
 	s.Bind(server.DirectBinding("exchanger", func(c context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
-		fmt.Fprintf(rw, d.Headers["randomHeader"].(string))
+		fmt.Fprintf(rw, d.Headers["password"].(string))
 	}))
 
 	s.ListenAndServe()

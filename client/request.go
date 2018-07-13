@@ -24,17 +24,20 @@ type Request struct {
 	// Reply is a boolean value telling if the request should wait for a reply
 	// or just send the request without waiting.
 	Reply bool
+
+	// middlewares holds slice of middlewares to run before or after the client
+	// sends a request. This is only executed for the specific request.
+	middlewares []MiddlewareFunc
 }
 
 // NewRequest will generate a new request to be published. The default request
 // will use the content type "text/plain" and always wait for reply.
 func NewRequest(rk string) *Request {
 	r := Request{
-		RoutingKey: rk,
-		Headers: amqp.Table{
-			"ContentType": "text/plain",
-		},
-		Reply: true,
+		RoutingKey:  rk,
+		Headers:     amqp.Table{"ContentType": "text/plain"},
+		Reply:       true,
+		middlewares: []MiddlewareFunc{},
 	}
 
 	return &r
@@ -83,6 +86,14 @@ func (r *Request) WithBody(b []byte) *Request {
 // passed for the request.
 func (r *Request) WithStringBody(b string) *Request {
 	r.Body = []byte(b)
+
+	return r
+}
+
+// AddMiddleware will add a middleware which will be executed when the request
+// is sent.
+func (r *Request) AddMiddleware(m MiddlewareFunc) *Request {
+	r.middlewares = append(r.middlewares, m)
 
 	return r
 }
