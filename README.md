@@ -170,33 +170,39 @@ currently no way to accept multiple responses or responses in a specific order.
 #### Middlewares
 
 Just like the server this package is trying to implement features to be able to
-easily plug code before and after a request is being sent with the client. There
-are two types of middleware funcs, one for the pre hook which will take a
-`PreSendFunc` as input and return a `PreSendFunc` and another for the post hook
-which will take a `PostSendFunc` as input and return a `PostSendFunc`. The
-reason for this interface is just like the server to be able to chain them.
+easily plug code before and after a request is being sent with the client. The
+middleware is defined as a function that takes a `SendFunc` and returns a
+`SendFunc`. The client itself implements the `SendFunc` that generates the
+request and publishes it. The function is represented like this.
 
-The different functions are represented like this.
 
 ```go
-type PreSendFunc func(r *Request)
-
-type PostSendFunc func(d *amqp.Delivery, e error)
+type SendFunc func(r *Request) (*amqp.Delivery, error)
 ```
 
 The `Request` is the request passed to `Send` i.e. if you want to add custom
-headers. The `amqp.Delivery` is the response from the server. Generally the
-delivery is not handled as a pointer but to easier enable possibility to modify
-the delivery it's passed as a pointer.
+headers. The `*amqp.Delivery` is the response from the server and potential
+errors will be returned as well.
 
 Just like the server you can choose to chain your custom methods to one or just
 add them one by one with the add interface.
 
 ```go
-c := New(url).
-    AddPreSendMiddleware(MyMiddlewarePreFunc).
-    AddPostSendMiddleware(MyMiddlewarePostFunc)
+c := New(url).AddMiddleware(MySendMiddleware)
 ```
+
+The client can also take middlewares for single requests with the exact same
+interface.
+
+```go
+c := New(url).AddMiddleware(MySendMiddleware)
+r := NewRequest("some.where").AddMiddleware(MyMorImportantMiddleware)
+
+c.Send(r)
+```
+
+Since the request is more specific it's middlewares are executed **after** the
+clients middlewares. This is so the request can override headers etc.
 
 Se `examples/middleware` for more examples.
 

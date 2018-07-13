@@ -1,31 +1,20 @@
 package client
 
-// MiddlewarePreFunc represents the function type that's being executed before
-// the Send() method publishes the message.
-type MiddlewarePreFunc func(next PreSendFunc) PreSendFunc
+import "github.com/streadway/amqp"
 
-// MiddlewarePostFunc represents the function type of functions being executed
-// after the Send() method has published a message. Since the PostSendFunc
-// takes an amqp.Delivery as first argument these methods are not executed if an
-// error occurs or if the request was created without wanting a reply.
-type MiddlewarePostFunc func(next PostSendFunc) PostSendFunc
+// SendFunc represents the function that Send does. It takes a Request as input
+// and returns a delivery and an error.
+type SendFunc func(r *Request) (d *amqp.Delivery, e error)
 
-// MiddlewarePreChain will chain all middlewares passed and return a
-// PreSendFunc.
-func MiddlewarePreChain(next PreSendFunc, m ...MiddlewarePreFunc) PreSendFunc {
+// MiddlewareFunc represents a function that can be used as a middleware.
+type MiddlewareFunc func(next SendFunc) SendFunc
+
+// MiddlewareChain will attatch all given middlewares to your SendFunc.
+// The middlewares will be executed in the same order as your input.
+func MiddlewareChain(next SendFunc, m ...MiddlewareFunc) SendFunc {
 	if len(m) == 0 {
 		return next
 	}
 
-	return m[0](MiddlewarePreChain(next, m[1:cap(m)]...))
-}
-
-// MiddlewarePostChain will chain all middlewares passed and return a
-// PostSendFunc.
-func MiddlewarePostChain(next PostSendFunc, m ...MiddlewarePostFunc) PostSendFunc {
-	if len(m) == 0 {
-		return next
-	}
-
-	return m[0](MiddlewarePostChain(next, m[1:cap(m)]...))
+	return m[0](MiddlewareChain(next, m[1:cap(m)]...))
 }
