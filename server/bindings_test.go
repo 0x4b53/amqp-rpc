@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,14 +13,14 @@ import (
 )
 
 func TestFanout(t *testing.T) {
-	var timesCalled = 0
+	var timesCalled int64 = 0
 
 	s1 := New(url)
 	s2 := New(url)
 	s3 := New(url)
 
 	fanoutHandler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-		timesCalled++
+		atomic.AddInt64(&timesCalled, 1)
 	}
 
 	s1.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
@@ -43,7 +44,7 @@ func TestFanout(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	Equal(t, err, nil)
-	Equal(t, timesCalled, 3)
+	Equal(t, atomic.LoadInt64(&timesCalled), int64(3))
 }
 
 func TestTopic(t *testing.T) {
