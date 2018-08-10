@@ -19,6 +19,10 @@ type Request struct {
 	// Body is the byte slice that will be sent as the body for the request.
 	Body []byte
 
+	// ContentType is the content type of the rquest data. This defaults to
+	// text/plain but should be set appropriate to the content.
+	ContentType string
+
 	// Routing key is the routing key that will be used in the amqp.Publishing
 	// request.
 	RoutingKey string
@@ -50,8 +54,9 @@ type Request struct {
 // will use the content type "text/plain" and always wait for reply.
 func NewRequest(rk string) *Request {
 	r := Request{
+		ContentType: "text/plain",
 		RoutingKey:  rk,
-		Headers:     amqp.Table{"ContentType": "text/plain"},
+		Headers:     amqp.Table{},
 		Reply:       true,
 		middlewares: []MiddlewareFunc{},
 	}
@@ -92,7 +97,7 @@ func (r *Request) WithResponse(wr bool) *Request {
 // request. This value will bee set as the ContentType in the amqp.Publishing
 // type but also preserved as a header value.
 func (r *Request) WithContentType(ct string) *Request {
-	r.Headers["ContentType"] = ct
+	r.ContentType = ct
 
 	return r
 }
