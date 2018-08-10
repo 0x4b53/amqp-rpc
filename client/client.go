@@ -15,8 +15,6 @@ var (
 	// ErrTimeout is an error returned when a client request does not
 	// receive a response within the client timeout duration.
 	ErrTimeout = errors.New("request timed out")
-
-	defaultTimeout = 10 * time.Second
 )
 
 // Client represents an AMQP client used within a RPC framework.
@@ -25,9 +23,9 @@ type Client struct {
 	// url is the URL where the server should dial to start subscribing.
 	url string
 
-	// Timeout is the time we should wait after a request is sent before
+	// timeout is the time we should wait after a request is sent before
 	// we assume the request got lost.
-	Timeout time.Duration
+	timeout time.Duration
 
 	// requests is a single channel used whenever we want to publish
 	// a message. The channel is consumed in a separate go routine which
@@ -103,6 +101,7 @@ func New(url string) *Client {
 		mu:                 sync.RWMutex{},
 		replyToQueueName:   "reply-to-" + uuid.Must(uuid.NewV4()).String(),
 		middlewares:        []MiddlewareFunc{},
+		timeout:            time.Second * 10,
 	}
 
 	// Set default values to use when crearing channels and consumers.
@@ -143,7 +142,7 @@ func (c *Client) WithConsumeSettings(s connection.ConsumeSettings) *Client {
 
 // WithTimeout will set the client timeout used when publishing messages.
 func (c *Client) WithTimeout(t time.Duration) *Client {
-	c.Timeout = t
+	c.timeout = t
 
 	return c
 }
@@ -177,8 +176,6 @@ func (c *Client) setDefaults() {
 		Mandatory: false,
 		Immediate: false,
 	}
-
-	c.Timeout = 2000 * time.Millisecond
 }
 
 // runForever will connect amqp, setup all the amqp channels, run the publisher
@@ -263,11 +260,6 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 	go func() {
 		for request := range c.requests {
 			replyToQueueName := ""
-			contentType := "text/plain"
-
-			if ct, ok := request.Headers["ContentType"]; ok {
-				contentType = ct.(string)
-			}
 
 			if request.Reply {
 				// We only need the replyTo queue if we actually want a reply.
@@ -283,7 +275,7 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 				c.publishSettings.Immediate,
 				amqp.Publishing{
 					Headers:       request.Headers,
-					ContentType:   contentType,
+					ContentType:   request.ContentType,
 					ReplyTo:       replyToQueueName,
 					Body:          request.Body,
 					CorrelationId: request.correlationID,
@@ -389,9 +381,6 @@ func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 }
 
 func (c *Client) send(r *Request) (*amqp.Delivery, error) {
-	// Init a channel to receive responses. A channel is used to be
-	// non-blocking.
-
 	// This is where we get the responses back.
 	// If this request doesn't want a reply back (by setting Reply to false)
 	// this channel will get a nil message after publisher has Published the
@@ -399,8 +388,12 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	r.response = make(chan *amqp.Delivery)
 	r.correlationID = uuid.Must(uuid.NewV4()).String()
 
-	// Ensure the responseConsumer will know which chan to forward
-	// the response to when the response arrives.
+	// This is where we get any (client) errors if they occure before we could
+	// even send the request.
+	r.errChan = make(chan error)
+
+	// Ensure the responseConsumer will know which chan to forward the response
+	// to when the response arrives.
 	c.mu.Lock()
 	c.correlationMapping[r.correlationID] = r.response
 	c.mu.Unlock()
@@ -411,14 +404,14 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 		c.mu.Unlock()
 	}()
 
-	// This is where we get any (client) errors back from.
-	r.errChan = make(chan error)
+	// If a request timeout is specified, use that one, otherwise use the
+	// clients global timeout settings.
+	var timeout time.Duration
 
-	timeout := defaultTimeout
 	if r.Timeout.Nanoseconds() != 0 {
 		timeout = r.Timeout
-	} else if c.Timeout.Nanoseconds() != 0 {
-		timeout = c.Timeout
+	} else if c.timeout.Nanoseconds() != 0 {
+		timeout = c.timeout
 	}
 
 	c.requests <- r
