@@ -15,6 +15,8 @@ var (
 	// ErrTimeout is an error returned when a client request does not
 	// receive a response within the client timeout duration.
 	ErrTimeout = errors.New("request timed out")
+
+	defaultTimeout = 10 * time.Second
 )
 
 // Client represents an AMQP client used within a RPC framework.
@@ -27,11 +29,11 @@ type Client struct {
 	// we assume the request got lost.
 	Timeout time.Duration
 
-	// clientMessages is a single channel used whenever we want to publish
+	// requests is a single channel used whenever we want to publish
 	// a message. The channel is consumed in a separate go routine which
 	// allows us to add messages to the channel that we don't want replys from
 	// without the need to wait for on going requests.
-	clientMessages chan *publishingRequestMessages
+	requests chan *Request
 
 	// correlationMapping maps each correlation ID to a channel of
 	// *amqp.Delivery. This is to ensure that no matter the order of a request
@@ -41,10 +43,10 @@ type Client struct {
 	// of course be a problem if the correlation IDs used is not unique enough
 	// in which case a queueChannel might be overridden if it hasn't been
 	// cleared before.
-	correlationMapping map[string]chan amqp.Delivery
+	correlationMapping map[string]chan *amqp.Delivery
 
 	// mu is used to protect the correlationMapping for concurrent access.
-	mu sync.Mutex
+	mu sync.RWMutex
 
 	// dialconfig is a amqp.Config which holds information about the connection
 	// such as authentication, TLS configuration, and a dailer which is a
@@ -80,19 +82,6 @@ type Client struct {
 	middlewares []MiddlewareFunc
 }
 
-// publishingRequestMessages is a type that holds information about each request
-// that should be published. Besides the amqp.Publishing and routing key, the type
-// has one channel for responses after the message is sent and one for errors
-// if an error occurrs when trying to send the message.
-type publishingRequestMessages struct {
-	exchange   string
-	routingKey string
-	publishing amqp.Publishing
-	response   chan amqp.Delivery
-	errChan    chan error
-	numRetries int
-}
-
 // New will return a pointer to a new Client. There are two ways to manage the
 // connection that will be used by the client (i.e. when using TLS).
 //
@@ -109,9 +98,9 @@ func New(url string) *Client {
 		dialconfig: amqp.Config{
 			Dial: connection.DefaultDialer,
 		},
-		clientMessages:     make(chan *publishingRequestMessages),
-		correlationMapping: make(map[string]chan amqp.Delivery),
-		mu:                 sync.Mutex{},
+		requests:           make(chan *Request),
+		correlationMapping: make(map[string]chan *amqp.Delivery),
+		mu:                 sync.RWMutex{},
 		replyToQueueName:   "reply-to-" + uuid.Must(uuid.NewV4()).String(),
 		middlewares:        []MiddlewareFunc{},
 	}
@@ -234,7 +223,11 @@ func (c *Client) runOnce(url string) error {
 	defer inputCh.Close()
 	defer outputCh.Close()
 
-	c.runRepliesConsumer(inputCh)
+	err = c.runRepliesConsumer(inputCh)
+	if err != nil {
+		return err
+	}
+
 	c.runPublisher(outputCh)
 
 	err, ok := <-conn.NotifyClose(make(chan *amqp.Error))
@@ -261,22 +254,40 @@ func (c *Client) declareChannels(conn *amqp.Connection) (*amqp.Channel, *amqp.Ch
 	return inputCh, outputCh, nil
 }
 
-// runPublisher consumes messages from clientMessages and publishes them on the
+// runPublisher consumes messages from chan requests and publishes them on the
 // amqp exchange. The method will stop consuming if the underlying amqp channel
 // is closed for any reason, and when this happens the messages will be put back
-// in clientMessages unless we have retried to many times.
+// in chan requests unless we have retried to many times.
 func (c *Client) runPublisher(outChan *amqp.Channel) {
 	logger.Info("client: running publisher")
 	go func() {
-		for request := range c.clientMessages {
-			logger.Infof("client: publishing %v", request.publishing.CorrelationId)
+		for request := range c.requests {
+			replyToQueueName := ""
+			contentType := "text/plain"
+
+			if ct, ok := request.Headers["ContentType"]; ok {
+				contentType = ct.(string)
+			}
+
+			if request.Reply {
+				// We only need the replyTo queue if we actually want a reply.
+				replyToQueueName = c.replyToQueueName
+			}
+
+			logger.Infof("client: publishing %v", request.correlationID)
 
 			err := outChan.Publish(
-				request.exchange,
-				request.routingKey,
+				request.Exchange,
+				request.RoutingKey,
 				c.publishSettings.Mandatory,
 				c.publishSettings.Immediate,
-				request.publishing,
+				amqp.Publishing{
+					Headers:       request.Headers,
+					ContentType:   contentType,
+					ReplyTo:       replyToQueueName,
+					Body:          request.Body,
+					CorrelationId: request.correlationID,
+				},
 			)
 
 			if err != nil {
@@ -289,29 +300,17 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 				} else {
 					logger.Warn("client: could not publish message, retrying")
 					request.numRetries++
-					c.clientMessages <- request
+					c.requests <- request
 				}
 
 				return
 			}
 
-			// Map a request correlation ID to a response channel. The mutext
-			// lock taken in the response consumer should be sufficient to
-			// handle potential races. Famous last words. If race problems are
-			// detected, make sure to take this lock *before* publishing on the
-			// out channel.
-			//
-			// This is not needed if we don't want a reply, that's just a risk
-			// for us to hang in the consumer if not handled properly.
-			if request.response != nil {
-				c.mu.Lock()
-				c.correlationMapping[request.publishing.CorrelationId] = request.response
-				c.mu.Unlock()
+			if !request.Reply {
+				// We don't expect a response, so just respond directly here
+				// with nil to let send() return.
+				request.response <- nil
 			}
-
-			// The request has left the client, no more errors can occur from
-			// here.
-			close(request.errChan)
 
 			logger.Info("client: did publish message")
 		}
@@ -352,22 +351,18 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 	go func() {
 		logger.Info("client: waiting for replies")
 		for response := range messages {
-			c.mu.Lock()
+			c.mu.RLock()
 			replyChan, ok := c.correlationMapping[response.CorrelationId]
+			c.mu.RUnlock()
+
 			if !ok {
 				logger.Warnf("client: could not find where to reply. CorrelationId: %v", response.CorrelationId)
-				c.mu.Unlock()
 				continue
 			}
-			// Remove the mapping between correlation ID and reply channel. We
-			// don't need it any more.
-			delete(c.correlationMapping, response.CorrelationId)
-			c.mu.Unlock()
 
 			logger.Infof("client: forwarding reply %v", response.CorrelationId)
 
-			replyChan <- response
-			close(replyChan)
+			replyChan <- &response
 		}
 
 		logger.Info("client: done waiting for replies")
@@ -396,62 +391,47 @@ func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// Init a channel to receive responses. A channel is used to be
 	// non-blocking.
-	var responseChannel chan amqp.Delivery
 
-	// Setup default content type
-	var contentType = "text/plain"
+	// This is where we get the responses back.
+	// If this request doesn't want a reply back (by setting Reply to false)
+	// this channel will get a nil message after publisher has Published the
+	// message.
+	r.response = make(chan *amqp.Delivery)
+	r.correlationID = uuid.Must(uuid.NewV4()).String()
 
-	if ct, ok := r.Headers["ContentType"]; ok {
-		contentType = ct.(string)
+	// Ensure the responseConsumer will know which chan to forward
+	// the response to when the response arrives.
+	c.mu.Lock()
+	c.correlationMapping[r.correlationID] = r.response
+	c.mu.Unlock()
+
+	defer func() {
+		c.mu.Lock()
+		delete(c.correlationMapping, r.correlationID)
+		c.mu.Unlock()
+	}()
+
+	// This is where we get any (client) errors back from.
+	r.errChan = make(chan error)
+
+	timeout := defaultTimeout
+	if r.Timeout.Nanoseconds() != 0 {
+		timeout = r.Timeout
+	} else if c.Timeout.Nanoseconds() != 0 {
+		timeout = c.Timeout
 	}
 
-	// Only define the channel if we're going to used.
-	if r.Reply {
-		responseChannel = make(chan amqp.Delivery)
-	}
-
-	logger.Infof("client: sender: replyChan is %v", responseChannel)
-	request := &publishingRequestMessages{
-		exchange:   r.Exchange,
-		routingKey: r.RoutingKey,
-		publishing: amqp.Publishing{
-			Headers:       r.Headers,
-			ContentType:   contentType,
-			ReplyTo:       c.replyToQueueName,
-			Body:          r.Body,
-			CorrelationId: uuid.Must(uuid.NewV4()).String(),
-		},
-		response: responseChannel,
-		errChan:  make(chan error),
-	}
-
-	c.clientMessages <- request
-
-	logger.Info("client: waiting for error")
-	err, _ := <-request.errChan
-	// Ignore closed channels, a channel is closed if no error occurs.
-
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Info("client: no error")
-
-	// Don't wait for reply if the requests wishes to ignore them.
-	if !r.Reply {
-		return nil, nil
-	}
+	c.requests <- r
 
 	// All responses are published on the requests response channel. Hang here
 	// until a response is received and close the channel when it's read.
-	logger.Info("client: waiting for delivery")
-	delivery, ok := <-request.response
-	if !ok {
-		logger.Warnf("client: response channel was closed")
-		return nil, errors.New("client: no response")
+	select {
+	case err := <-r.errChan:
+		return nil, err
+	case <-time.After(timeout):
+		return nil, ErrTimeout
+	case delivery := <-r.response:
+		logger.Info("client: got delivery")
+		return delivery, nil
 	}
-
-	logger.Info("client: got delivery")
-
-	return &delivery, nil
 }

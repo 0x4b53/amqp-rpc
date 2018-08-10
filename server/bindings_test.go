@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bombsimon/amqp-rpc/client"
+	"github.com/bombsimon/amqp-rpc/testhelpers"
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
@@ -27,9 +28,9 @@ func TestFanout(t *testing.T) {
 	s2.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
 	s3.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
 
-	stop1 := startServer(s1)
-	stop2 := startServer(s2)
-	stop3 := startServer(s3)
+	stop1 := testhelpers.StartServer(s1)
+	stop2 := testhelpers.StartServer(s2)
+	stop3 := testhelpers.StartServer(s3)
 	defer stop1()
 	defer stop2()
 	defer stop3()
@@ -67,7 +68,7 @@ func TestTopic(t *testing.T) {
 		wasCalled["baz.*"] <- string(d.Body)
 	}))
 
-	stop := startServer(s)
+	stop := testhelpers.StartServer(s)
 	defer stop()
 
 	cases := []struct {
@@ -125,7 +126,7 @@ func TestHeaders(t *testing.T) {
 
 	s.Bind(HeadersBinding(h, handler))
 
-	stop := startServer(s)
+	stop := testhelpers.StartServer(s)
 	defer stop()
 
 	// Ensure 'somewhere.*' matches 'somewhere.there'.

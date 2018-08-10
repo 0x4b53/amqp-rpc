@@ -1,6 +1,8 @@
 package client
 
 import (
+	"time"
+
 	"github.com/streadway/amqp"
 )
 
@@ -25,9 +27,23 @@ type Request struct {
 	// or just send the request without waiting.
 	Reply bool
 
+	// Timeout is the time we should wait after a request is sent before
+	// we assume the request got lost.
+	Timeout time.Duration
+
 	// middlewares holds slice of middlewares to run before or after the client
 	// sends a request. This is only executed for the specific request.
 	middlewares []MiddlewareFunc
+
+	// These channels are used by the repliesConsumer and correlcationIdMapping and will send the
+	// replies to this Request here.
+	response chan *amqp.Delivery
+	errChan  chan error // If we get a client error (e.g we can't publish) it will end up here.
+
+	correlationID string
+
+	// the number of times that the publisher should retry.
+	numRetries int
 }
 
 // NewRequest will generate a new request to be published. The default request
@@ -54,6 +70,12 @@ func (r *Request) WithExchange(e string) *Request {
 func (r *Request) WithHeaders(h amqp.Table) *Request {
 	r.Headers = h
 
+	return r
+}
+
+// WithTimeout will set the client timeout used when publishing messages.
+func (r *Request) WithTimeout(t time.Duration) *Request {
+	r.Timeout = t
 	return r
 }
 

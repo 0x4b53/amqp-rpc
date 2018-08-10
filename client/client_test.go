@@ -21,8 +21,8 @@ func TestClient(t *testing.T) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
 
-	go s.ListenAndServe()
-	time.Sleep(50 * time.Millisecond)
+	stop := testhelpers.StartServer(s)
+	defer stop()
 
 	client := New("amqp://guest:guest@localhost:5672/")
 	NotEqual(t, client, nil)
@@ -73,4 +73,41 @@ func TestReconnect(t *testing.T) {
 
 	_, err = client.Send(NewRequest("myqueue").WithStringBody("client testing").WithResponse(false))
 	Equal(t, err != nil, false)
+}
+
+func TestTimeout(t *testing.T) {
+	s := server.New(url)
+	s.Bind(server.DirectBinding("myqueue", func(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+		time.Sleep(1 * time.Millisecond)
+	}))
+
+	stop := testhelpers.StartServer(s)
+	defer stop()
+
+	cases := []struct {
+		client  *Client
+		request *Request
+	}{
+		// Client with timeout but no timeout on the Request.
+		{
+			client:  New(url).WithTimeout(1 * time.Microsecond),
+			request: NewRequest("myqueue"),
+		},
+		// Request with timeout but no timeout on the Client.
+		{
+			client:  New(url),
+			request: NewRequest("myqueue").WithTimeout(1 * time.Microsecond),
+		},
+		// Request timeout overrides the Client timeout.
+		{
+			client:  New(url).WithTimeout(10 * time.Second),
+			request: NewRequest("myqueue").WithTimeout(1 * time.Microsecond),
+		},
+	}
+
+	for _, tc := range cases {
+		response, err := tc.client.Send(tc.request)
+		Equal(t, err, ErrTimeout)
+		Equal(t, response, nil)
+	}
 }

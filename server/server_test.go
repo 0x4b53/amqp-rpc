@@ -28,7 +28,7 @@ func TestSendWithReply(t *testing.T) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
 
-	stop := startServer(s)
+	stop := testhelpers.StartServer(s)
 	defer stop()
 
 	c := client.New(url)
@@ -61,7 +61,7 @@ func TestMiddleware(t *testing.T) {
 		fmt.Fprint(rw, "this is not allowed")
 	}))
 
-	stop := startServer(s)
+	stop := testhelpers.StartServer(s)
 	defer stop()
 
 	c := client.New(url)
@@ -104,7 +104,7 @@ func TestReconnect(t *testing.T) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
 
-	stop := startServer(s)
+	stop := testhelpers.StartServer(s)
 	defer stop()
 	c := client.New(url)
 
@@ -118,21 +118,5 @@ func TestReconnect(t *testing.T) {
 		conn.Close()
 
 		Equal(t, reply.Body, []byte(fmt.Sprintf("Got message: %s", message)))
-	}
-}
-
-func startServer(s *RPCServer) func() {
-	done := make(chan struct{})
-
-	go func() {
-		s.ListenAndServe()
-		close(done)
-	}()
-
-	time.Sleep(50 * time.Millisecond)
-
-	return func() {
-		s.Stop()
-		<-done
 	}
 }
