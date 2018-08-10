@@ -1,6 +1,8 @@
 package client
 
-import "github.com/streadway/amqp"
+import (
+	"github.com/streadway/amqp"
+)
 
 // SendFunc represents the function that Send does. It takes a Request as input
 // and returns a delivery and an error.
