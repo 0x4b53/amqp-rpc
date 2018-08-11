@@ -14,6 +14,10 @@ var (
 	// ErrTimeout is an error returned when a client request does not
 	// receive a response within the client timeout duration.
 	ErrTimeout = errors.New("request timed out")
+
+	// ErrServerCrashed is an error returned when the ServerCrashedHeader header
+	// exists in the response from the server.
+	ErrServerCrashed = errors.New("server crashed upon handling request")
 )
 
 // Client represents an AMQP client used within a RPC framework.
@@ -424,6 +428,13 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 		return nil, ErrTimeout
 	case delivery := <-r.response:
 		logger.Info("client: got delivery")
+
+		if delivery != nil {
+			if _, ok := delivery.Headers[ServerCrashedHeader]; ok {
+				return delivery, ErrServerCrashed
+			}
+		}
+
 		return delivery, nil
 	}
 }

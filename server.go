@@ -3,6 +3,8 @@ package amqprpc
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -18,6 +20,10 @@ const (
 	// CtxQueueName can be used to get the queue name from the context.Context
 	// inside the HandlerFunc.
 	CtxQueueName ctxKey = "queue_name"
+
+	// ServerCrashedHeader is the name of the header that will be set in the
+	// response if the server crashes when handling a reqeust.
+	ServerCrashedHeader = "rpc-server-crash"
 )
 
 var (
@@ -59,6 +65,12 @@ type Server struct {
 	// is added.
 	responses chan processedRequest
 
+	// Number of maximum retries if a requet faies to process before stop
+	// requeueing. A back-off will be calculated exponential to the number of
+	// retries so a high number should be avoided. Default value is 0 wich means
+	// that no retries will be made.
+	maxRetries float64
+
 	// dialconfig is a amqp.Config which holds information about the connection
 	// such as authentication, TLS configuration, and a dailer which is a
 	// function used to obtain a connection. By default the dialconfig will
@@ -87,6 +99,7 @@ func NewServer(url string) *Server {
 	server := Server{
 		url:         url,
 		bindings:    []HandlerBinding{},
+		maxRetries:  0,
 		middlewares: []ServerMiddlewareFunc{},
 		dialconfig: amqp.Config{
 			Dial: DefaultDialer,
@@ -102,6 +115,14 @@ func NewServer(url string) *Server {
 // WithDialConfig sets the dial config used for the server.
 func (s *Server) WithDialConfig(c amqp.Config) *Server {
 	s.dialconfig = c
+
+	return s
+}
+
+// WithMaxRetries sets the maximum number of retries to do when processing
+// requests.
+func (s *Server) WithMaxRetries(mr float64) *Server {
+	s.maxRetries = mr
 
 	return s
 }
@@ -276,8 +297,21 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 
 	logger.Infof("server: waiting for messages on queue '%s'", queueName)
 
+	// Mutex to use when writing to crash map counter
+	mu := sync.RWMutex{}
+
+	// Map to keep track of retry count for a message
+	crashes := map[string]float64{}
+
 	for delivery := range deliveries {
 		logger.Infof("server: got delivery on queue %v correlation id %v", queueName, delivery.CorrelationId)
+
+		// Ensure the correlation ID for the specific request exists in the map.
+		if _, ok := crashes[delivery.CorrelationId]; !ok {
+			mu.RLock()
+			crashes[delivery.CorrelationId] = 0
+			mu.RUnlock()
+		}
 
 		rw := ResponseWriter{
 			publishing: &amqp.Publishing{
@@ -288,19 +322,71 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 
 		ctx := context.WithValue(context.Background(), CtxQueueName, queueName)
 
-		// TODO: Recover panic in handler. And use delivery.Nack() so amqp will retry.
-		handler(ctx, &rw, delivery)
-		delivery.Ack(false)
+		// Process the request in a separate go routine to not crash the server
+		// on panic and make use of the panic recovery.
+		go func(delivery amqp.Delivery) {
+			pr := processedRequest{
+				replyTo:   delivery.ReplyTo,
+				mandatory: rw.mandatory,
+				immediate: rw.immediate,
+			}
 
-		s.responses <- processedRequest{
-			replyTo:    delivery.ReplyTo,
-			mandatory:  rw.mandatory,
-			immediate:  rw.immediate,
-			publishing: *rw.publishing,
-		}
+			defer s.handlerRecovery(delivery, rw, pr, crashes, &mu)
+
+			handler(ctx, &rw, delivery)
+			delivery.Ack(false)
+
+			pr.publishing = *rw.publishing
+			s.responses <- pr
+		}(delivery)
 	}
 
 	logger.Infof("server: stopped waiting for messages on queue '%s'", queueName)
+}
+
+func (s *Server) handlerRecovery(delivery amqp.Delivery, rw ResponseWriter, pr processedRequest, crashes map[string]float64, mu *sync.RWMutex) {
+	r := recover()
+	if r == nil {
+		return
+	}
+
+	logger.Warnf("server: crashed while handling request")
+
+	// Add new crash to the request recovering from a panic.
+	mu.RLock()
+	crashes[delivery.CorrelationId]++
+	mu.RUnlock()
+
+	switch {
+	case crashes[delivery.CorrelationId] > s.maxRetries:
+		fmt.Fprintf(&rw, "crashed when running handler: %s", r.(string))
+		rw.WriteHeader(ServerCrashedHeader, r.(string))
+
+		pr.publishing = *rw.publishing
+
+		s.responses <- pr
+
+		// Time to remove the requet from crash map, we could not avoid a panic
+		// within the max allowed retry attempts.
+		mu.Lock()
+		delete(crashes, delivery.CorrelationId)
+		mu.Unlock()
+
+		// Nack message and do NOT requeue.
+		delivery.Nack(true, false)
+	default:
+		// Use exponential f(x) = 2^x as backoff but never more than one hour.
+		backoff := math.Pow(2, crashes[delivery.CorrelationId])
+		if backoff > 3600 {
+			backoff = 3600
+		}
+
+		logger.Warnf("server: max retries not reached (%v/%v), will retry in %v seconds", crashes[delivery.CorrelationId], s.maxRetries, backoff)
+
+		time.Sleep(time.Duration(backoff) * time.Second)
+
+		delivery.Nack(true, true)
+	}
 }
 
 func (s *Server) declareAndBind(inputCh *amqp.Channel, binding HandlerBinding) (string, error) {

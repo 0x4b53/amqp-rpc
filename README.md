@@ -67,6 +67,19 @@ customBinding := HandlerBinding{
 s.Bind(customBinding)
 ```
 
+The server is configured to handle crashes that occurs in the handler function
+so even if your code crashes the server won't. By default the server will not
+retry to process the request when a crash occurs however this is configurable by
+setting the number of times a request will berequeued after a `Nack` of a
+message. The retry functionallity is configured with a simple exponential
+back-off algorithm to avoid spamming the server; `f(x) = 2^x`.
+
+```go
+
+// Retry after 2, 4, 8, 16 and finally 32 seconds.
+s := NewServer("amqp://guest:guest@localhost:5672").WithMaxRetries(5)
+````
+
 #### Server middlewares
 
 Middlewares can be hooked to both a specific handler and to the entire server to
