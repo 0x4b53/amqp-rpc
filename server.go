@@ -77,8 +77,9 @@ type Server struct {
 	// bus.
 	consumeSettings ConsumeSettings
 
-	// These channels are used to signal shutdowns when calling Stop().
-	stopChan chan struct{} // Closed when Stop() is called.
+	// stopChan channel is used to signal shutdowns when calling Stop(). The
+	// channel will be closed when Stop() is called.
+	stopChan chan struct{}
 }
 
 // NewServer will return a pointer to a new Server.
