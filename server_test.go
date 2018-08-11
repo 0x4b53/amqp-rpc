@@ -1,4 +1,4 @@
-package server
+package amqprpc
 
 import (
 	"context"
@@ -6,19 +6,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bombsimon/amqp-rpc/client"
-	"github.com/bombsimon/amqp-rpc/connection"
 	"github.com/bombsimon/amqp-rpc/testhelpers"
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
 
-var url = "amqp://guest:guest@localhost:5672/"
+var serverTestURL = "amqp://guest:guest@localhost:5672/"
 
 func TestSendWithReply(t *testing.T) {
-	cert := connection.Certificates{}
+	cert := Certificates{}
 
-	s := New(url).WithDialConfig(amqp.Config{
+	s := NewServer(serverTestURL).WithDialConfig(amqp.Config{
 		TLSClientConfig: cert.TLSConfig(),
 	})
 
@@ -31,8 +29,8 @@ func TestSendWithReply(t *testing.T) {
 	stop := testhelpers.StartServer(s)
 	defer stop()
 
-	c := client.New(url)
-	request := client.NewRequest("myqueue").WithStringBody("this is a message")
+	c := NewClient(serverTestURL)
+	request := NewRequest("myqueue").WithStringBody("this is a message")
 	reply, err := c.Send(request)
 
 	Equal(t, err, nil)
@@ -51,7 +49,7 @@ func TestMiddleware(t *testing.T) {
 		}
 	}
 
-	s := New(url).AddMiddleware(mw)
+	s := NewServer(serverTestURL).AddMiddleware(mw)
 
 	s.Bind(DirectBinding("allowed", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprint(rw, "this is allowed")
@@ -64,23 +62,23 @@ func TestMiddleware(t *testing.T) {
 	stop := testhelpers.StartServer(s)
 	defer stop()
 
-	c := client.New(url)
+	c := NewClient(serverTestURL)
 
-	request := client.NewRequest("allowed")
+	request := NewRequest("allowed")
 	reply, err := c.Send(request)
 
 	Equal(t, err, nil)
 	Equal(t, reply.Body, []byte("this is allowed"))
 
-	request = client.NewRequest("denied")
+	request = NewRequest("denied")
 	reply, err = c.Send(request)
 
 	Equal(t, err, nil)
 	Equal(t, reply.Body, []byte("routing key 'denied' is not allowed"))
 }
 
-func TestReconnect(t *testing.T) {
-	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+func TestServerReconnect(t *testing.T) {
+	conn, err := amqp.Dial(serverTestURL)
 
 	Equal(t, err, nil)
 	defer conn.Close()
@@ -97,7 +95,7 @@ func TestReconnect(t *testing.T) {
 	)
 
 	dialer, connections := testhelpers.TestDialer(t)
-	s := New(url).WithDialConfig(amqp.Config{Dial: dialer})
+	s := NewServer(serverTestURL).WithDialConfig(amqp.Config{Dial: dialer})
 
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		time.Sleep(500 * time.Millisecond)
@@ -106,11 +104,11 @@ func TestReconnect(t *testing.T) {
 
 	stop := testhelpers.StartServer(s)
 	defer stop()
-	c := client.New(url)
+	c := NewClient(serverTestURL)
 
 	for i := 0; i < 2; i++ {
 		message := []byte(fmt.Sprintf("this is message %v", i))
-		request := client.NewRequest("myqueue").WithBody(message)
+		request := NewRequest("myqueue").WithBody(message)
 		reply, err := c.Send(request)
 		Equal(t, err, nil)
 

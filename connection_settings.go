@@ -1,6 +1,8 @@
-package connection
+package amqprpc
 
-import "github.com/streadway/amqp"
+import (
+	"github.com/streadway/amqp"
+)
 
 // ExchangeDeclareSettings is the settings that will be used when a handler
 // is mapped to a fanout exchange and an exchange is declared.

@@ -1,4 +1,4 @@
-package server
+package amqprpc
 
 import (
 	"github.com/streadway/amqp"

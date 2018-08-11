@@ -15,9 +15,8 @@ import (
 	"io/ioutil"
 	"log"
 
-	"github.com/bombsimon/amqp-rpc/client"
+	amqprpc "github.com/bombsimon/amqp-rpc"
 	"github.com/bombsimon/amqp-rpc/logger"
-	"github.com/bombsimon/amqp-rpc/server"
 	uuid "github.com/satori/go.uuid"
 	"github.com/streadway/amqp"
 )
@@ -34,8 +33,8 @@ func main() {
 	logger.SetInfoLogger(l)
 	logger.SetWarnLogger(l)
 
-	c := client.New(url).AddMiddleware(handlePassword)
-	r := client.NewRequest("exchanger")
+	c := amqprpc.NewClient(url).AddMiddleware(handlePassword)
+	r := amqprpc.NewRequest("exchanger")
 
 	for _, i := range []int{1, 2, 3} {
 		fmt.Printf("%-10s %d: password is '%s'\n", "Request", i, password)
@@ -48,9 +47,9 @@ func main() {
 		}
 	}
 
-	r2 := client.NewRequest("exchanger").AddMiddleware(
-		func(next client.SendFunc) client.SendFunc {
-			return func(r *client.Request) (*amqp.Delivery, error) {
+	r2 := amqprpc.NewRequest("exchanger").AddMiddleware(
+		func(next amqprpc.SendFunc) amqprpc.SendFunc {
+			return func(r *amqprpc.Request) (*amqp.Delivery, error) {
 				fmt.Println(">> I'm being executed before Send(), but only for ONE request!")
 				r.Headers["password"] = "i am custom"
 
@@ -68,8 +67,8 @@ func main() {
 
 }
 
-func handlePassword(next client.SendFunc) client.SendFunc {
-	return func(r *client.Request) (*amqp.Delivery, error) {
+func handlePassword(next amqprpc.SendFunc) amqprpc.SendFunc {
+	return func(r *amqprpc.Request) (*amqp.Delivery, error) {
 		if password == "" {
 			fmt.Println(">> I'm being executed before Send(), I'm ensuring you've got a password header!")
 			password = uuid.Must(uuid.NewV4()).String()
@@ -89,8 +88,8 @@ func handlePassword(next client.SendFunc) client.SendFunc {
 }
 
 //Middleware executing before or after being handled in server.
-func exchangeHeader(next server.HandlerFunc) server.HandlerFunc {
-	return func(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+func exchangeHeader(next amqprpc.HandlerFunc) amqprpc.HandlerFunc {
+	return func(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
 		next(ctx, rw, d)
 
 		rw.WriteHeader("password", uuid.Must(uuid.NewV4()).String())
@@ -98,11 +97,11 @@ func exchangeHeader(next server.HandlerFunc) server.HandlerFunc {
 }
 
 func startServer() {
-	s := server.New(url)
+	s := amqprpc.NewServer(url)
 
 	s.AddMiddleware(exchangeHeader)
 
-	s.Bind(server.DirectBinding("exchanger", func(c context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+	s.Bind(amqprpc.DirectBinding("exchanger", func(c context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, d.Headers["password"].(string))
 	}))
 

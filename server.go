@@ -1,4 +1,4 @@
-package server
+package amqprpc
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"github.com/streadway/amqp"
 
-	"github.com/bombsimon/amqp-rpc/connection"
 	"github.com/bombsimon/amqp-rpc/logger"
 )
 
@@ -42,9 +41,9 @@ type processedRequest struct {
 	publishing amqp.Publishing
 }
 
-// RPCServer represents an AMQP server used within the RPC framework. The
+// Server represents an AMQP server used within the RPC framework. The
 // server uses bindings to keep a list of handler functions.
-type RPCServer struct {
+type Server struct {
 	// url is the URL where the server should dial to start subscribing.
 	url string
 
@@ -53,7 +52,7 @@ type RPCServer struct {
 	bindings []HandlerBinding
 
 	// middlewares are chained and executed on request.
-	middlewares []MiddlewareFunc
+	middlewares []ServerMiddlewareFunc
 
 	// Every processed request will be responded to in a separate go routine.
 	// The server holds a chanel on which all the responses from a handler func
@@ -68,39 +67,39 @@ type RPCServer struct {
 
 	// exchangeDelcareSettings is configurations used when declaring a RabbitMQ
 	// exchange.
-	exchangeDelcareSettings connection.ExchangeDeclareSettings
+	exchangeDelcareSettings ExchangeDeclareSettings
 
 	// queueDeclareSettings is configuration used when declaring a RabbitMQ
 	// queue.
-	queueDeclareSettings connection.QueueDeclareSettings
+	queueDeclareSettings QueueDeclareSettings
 
 	// consumeSetting is configuration used when consuming from the message
 	// bus.
-	consumeSettings connection.ConsumeSettings
+	consumeSettings ConsumeSettings
 
 	// These channels are used to signal shutdowns when calling Stop().
 	stopChan chan struct{} // Closed when Stop() is called.
 }
 
-// New will return a pointer to a new RPCServer.
-func New(url string) *RPCServer {
-	server := RPCServer{
+// NewServer will return a pointer to a new Server.
+func NewServer(url string) *Server {
+	server := Server{
 		url:         url,
 		bindings:    []HandlerBinding{},
-		middlewares: []MiddlewareFunc{},
+		middlewares: []ServerMiddlewareFunc{},
 		dialconfig: amqp.Config{
-			Dial: connection.DefaultDialer,
+			Dial: DefaultDialer,
 		},
-		exchangeDelcareSettings: connection.ExchangeDeclareSettings{Durable: true},
-		queueDeclareSettings:    connection.QueueDeclareSettings{},
-		consumeSettings:         connection.ConsumeSettings{},
+		exchangeDelcareSettings: ExchangeDeclareSettings{Durable: true},
+		queueDeclareSettings:    QueueDeclareSettings{},
+		consumeSettings:         ConsumeSettings{},
 	}
 
 	return &server
 }
 
 // WithDialConfig sets the dial config used for the server.
-func (s *RPCServer) WithDialConfig(c amqp.Config) *RPCServer {
+func (s *Server) WithDialConfig(c amqp.Config) *Server {
 	s.dialconfig = c
 
 	return s
@@ -108,21 +107,21 @@ func (s *RPCServer) WithDialConfig(c amqp.Config) *RPCServer {
 
 // AddMiddleware will add a ServerMiddleware to the list of middlewares to be
 // triggered before the handle func for each request.
-func (s *RPCServer) AddMiddleware(m MiddlewareFunc) *RPCServer {
+func (s *Server) AddMiddleware(m ServerMiddlewareFunc) *Server {
 	s.middlewares = append(s.middlewares, m)
 
 	return s
 }
 
 // Bind will add a HandlerBinding to the list of servers to serve.
-func (s *RPCServer) Bind(binding HandlerBinding) {
+func (s *Server) Bind(binding HandlerBinding) {
 	s.bindings = append(s.bindings, binding)
 }
 
 // ListenAndServe will dial the RabbitMQ message bus, set up all the channels,
 // consume from all RPC server queues and monitor to connection to ensure the
 // server is always connected.
-func (s *RPCServer) ListenAndServe() {
+func (s *Server) ListenAndServe() {
 	s.responses = make(chan processedRequest)
 	s.stopChan = make(chan struct{})
 
@@ -139,7 +138,7 @@ func (s *RPCServer) ListenAndServe() {
 	}
 }
 
-func (s *RPCServer) listenAndServe() error {
+func (s *Server) listenAndServe() error {
 	logger.Infof("server: staring listener: %s", s.url)
 
 	// We are using two different connections here because:
@@ -203,7 +202,7 @@ func (s *RPCServer) listenAndServe() error {
 	return nil
 }
 
-func (s *RPCServer) waitForShutdown(inputConn, outputConn *amqp.Connection, inputCh, outputCh *amqp.Channel) error {
+func (s *Server) waitForShutdown(inputConn, outputConn *amqp.Connection, inputCh, outputCh *amqp.Channel) error {
 	inputConnClosed := inputConn.NotifyClose(make(chan *amqp.Error))
 	outputConnClosed := outputConn.NotifyClose(make(chan *amqp.Error))
 
@@ -227,7 +226,7 @@ func (s *RPCServer) waitForShutdown(inputConn, outputConn *amqp.Connection, inpu
 	}
 }
 
-func (s *RPCServer) startConsumers(inputCh *amqp.Channel, wg *sync.WaitGroup) ([]string, error) {
+func (s *Server) startConsumers(inputCh *amqp.Channel, wg *sync.WaitGroup) ([]string, error) {
 	consumerTags := []string{}
 	for _, binding := range s.bindings {
 		consumerTag, err := s.consume(binding, inputCh, wg)
@@ -241,7 +240,7 @@ func (s *RPCServer) startConsumers(inputCh *amqp.Channel, wg *sync.WaitGroup) ([
 	return consumerTags, nil
 }
 
-func (s *RPCServer) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync.WaitGroup) (string, error) {
+func (s *Server) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync.WaitGroup) (string, error) {
 	queueName, err := s.declareAndBind(inputCh, binding)
 	if err != nil {
 		return "", err
@@ -263,14 +262,14 @@ func (s *RPCServer) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *s
 	}
 
 	// Attach the middlewares to the handler.
-	handler := MiddlewareChain(binding.Handler, s.middlewares...)
+	handler := ServerMiddlewareChain(binding.Handler, s.middlewares...)
 
 	go s.runHandler(handler, deliveries, queueName, wg)
 
 	return consumerTag, nil
 }
 
-func (s *RPCServer) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery, queueName string, wg *sync.WaitGroup) {
+func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery, queueName string, wg *sync.WaitGroup) {
 	wg.Add(1)
 	defer wg.Done()
 
@@ -303,7 +302,7 @@ func (s *RPCServer) runHandler(handler HandlerFunc, deliveries <-chan amqp.Deliv
 	logger.Infof("server: stopped waiting for messages on queue '%s'", queueName)
 }
 
-func (s *RPCServer) declareAndBind(inputCh *amqp.Channel, binding HandlerBinding) (string, error) {
+func (s *Server) declareAndBind(inputCh *amqp.Channel, binding HandlerBinding) (string, error) {
 	queue, err := inputCh.QueueDeclare(
 		binding.RoutingKey,
 		s.queueDeclareSettings.Durable,
@@ -350,7 +349,7 @@ func (s *RPCServer) declareAndBind(inputCh *amqp.Channel, binding HandlerBinding
 	return queue.Name, nil
 }
 
-func (s *RPCServer) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
+func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 	wg.Add(1)
 	defer wg.Done()
 
@@ -383,7 +382,7 @@ func (s *RPCServer) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 // Stop will gracefully disconnect from AMQP after draining first incoming then
 // outgoing messages. This method won't wait for server shutdown to complete,
 // you should instead wait for ListenAndServe to exit.
-func (s *RPCServer) Stop() {
+func (s *Server) Stop() {
 	close(s.stopChan)
 }
 

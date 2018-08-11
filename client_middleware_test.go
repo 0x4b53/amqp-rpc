@@ -1,4 +1,4 @@
-package client
+package amqprpc
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	. "gopkg.in/go-playground/assert.v1"
 )
 
-func traceMiddleware(ID int, b *bytes.Buffer) MiddlewareFunc {
+func traceClientMiddleware(ID int, b *bytes.Buffer) ClientMiddlewareFunc {
 	return func(next SendFunc) SendFunc {
 		return func(r *Request) (*amqp.Delivery, error) {
 			fmt.Fprint(b, ID)
@@ -21,13 +21,13 @@ func traceMiddleware(ID int, b *bytes.Buffer) MiddlewareFunc {
 	}
 }
 
-func TestMiddlewareChain(t *testing.T) {
+func TestClientMiddlewareChain(t *testing.T) {
 	var (
 		req = NewRequest("")
 		b   = bytes.Buffer{}
 	)
 
-	mw := MiddlewareChain(
+	mw := ClientMiddlewareChain(
 		func(rx *Request) (*amqp.Delivery, error) {
 			fmt.Fprintf(&b, "X")
 
@@ -35,8 +35,8 @@ func TestMiddlewareChain(t *testing.T) {
 
 			return &dx, nil
 		},
-		traceMiddleware(1, &b),
-		traceMiddleware(2, &b),
+		traceClientMiddleware(1, &b),
+		traceClientMiddleware(2, &b),
 	)
 
 	res, err := mw(req)
@@ -46,8 +46,8 @@ func TestMiddlewareChain(t *testing.T) {
 	Equal(t, b.Bytes(), []byte("12X21"))
 }
 
-func TestClientAddMiddlewares(t *testing.T) {
-	c := New("")
+func TestClientClientAddMiddlewares(t *testing.T) {
+	c := NewClient("")
 
 	Equal(t, len(c.middlewares), 0)
 

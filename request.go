@@ -1,4 +1,4 @@
-package client
+package amqprpc
 
 import (
 	"time"
@@ -37,7 +37,7 @@ type Request struct {
 
 	// middlewares holds slice of middlewares to run before or after the client
 	// sends a request. This is only executed for the specific request.
-	middlewares []MiddlewareFunc
+	middlewares []ClientMiddlewareFunc
 
 	// These channels are used by the repliesConsumer and correlcationIdMapping and will send the
 	// replies to this Request here.
@@ -58,7 +58,7 @@ func NewRequest(rk string) *Request {
 		RoutingKey:  rk,
 		Headers:     amqp.Table{},
 		Reply:       true,
-		middlewares: []MiddlewareFunc{},
+		middlewares: []ClientMiddlewareFunc{},
 	}
 
 	return &r
@@ -119,7 +119,7 @@ func (r *Request) WithStringBody(b string) *Request {
 
 // AddMiddleware will add a middleware which will be executed when the request
 // is sent.
-func (r *Request) AddMiddleware(m MiddlewareFunc) *Request {
+func (r *Request) AddMiddleware(m ClientMiddlewareFunc) *Request {
 	r.middlewares = append(r.middlewares, m)
 
 	return r

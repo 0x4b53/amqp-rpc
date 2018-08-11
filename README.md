@@ -8,47 +8,55 @@
 
 ## Description
 
-This is a framework to use RabbitMQ with
+This is a framework to use [RabbitMQ](https://www.rabbitmq.com) with
 [Go amqp](https://github.com/streadway/amqp) as RPC client/server setup. The
-purpose of this package is to get all the advantages of using a message queue
-but without the hassle of handling the core of setting up servers and clients,
-handling network problems, reconnects and similar things.
+purpose of this framework is to implement a fully functional message queue setup
+where a user can just plug in handlers on the server(s) and use the client to
+communicate between them. This is suitable for many micro service architectures.
+
+We assume that the user has some knowledge about RabbitMQ and preferrably the Go
+package since a few of the types are exposed to the end user. However, for
+simple setups there's no need for understanding of any of this.
 
 ## Components
 
-The package consists of a few components that can be used together or separately.
+This framework consists of a client and a server with related beloning
+components such as request, responses, connections and other handy types.
 
 ### Server
 
-One of the key features is the RPC server wich is an easy way to quckly hook
-into the consumption of amqp messages. All you need to do to start consuming
+The server is designed to be a *plug-and-play* component with handlers attached
+to endpoints for amqp messages. All you need to do to start consuming
 messages published to `routing_key` looks like this:
 
 ```go
-s := server.New("amqp://guest:guest@localhost:5672")
+s := NewServer("amqp://guest:guest@localhost:5672")
 
-s.Bind(server.DirectBinding("routing_key", func(c context.Context, rw *ResponseWriter d *amqp.Delivery) {
+s.Bind(DirectBinding("routing_key", func(c context.Context, rw *ResponseWriter d *amqp.Delivery) {
+    // Print what the body and header was
     fmt.Println(d.Body, d.Headers)
+
+    // Add a response to the client
     fmt.Fprint(rw, "Handled")
 }))
 
 s.ListenAndServe()
 ```
 
-This will use the default exchange (`direct`) and use the routing key as queue
-name. It's also possible to specify any kind of exchange such as topic or
-fanout by using the `HandlerBinding` type. This package already supports direct,
-fanout, topic and header.
+This example will use the default exchange for direct bindings (`direct`) and
+use the routing key provided as queue name. It's also possible to specify other
+kind of exchanges such as topic or fanout by using the `HandlerBinding` type.
+This package already supports direct, fanout, topic and header.
 
 ```go
-s := server.New("amqp://guest:guest@localhost:5672)
+s := NewServer("amqp://guest:guest@localhost:5672")
 
-s.Bind(server.DirectBinding("routing_key", handleFunc))
-s.Bind(server.FanoutBinding("fanout-exchange", handleFunc))
-s.Bind(server.TopicBinding("routing_key.#", handleFunc))
-s.Bind(server.HeadersBinding(amqp.Table{"x-match": "all", "foo": "bar"}, handleFunc))
+s.Bind(DirectBinding("routing_key", handleFunc))
+s.Bind(FanoutBinding("fanout-exchange", handleFunc))
+s.Bind(TopicBinding("routing_key.#", handleFunc))
+s.Bind(HeadersBinding(amqp.Table{"x-match": "all", "foo": "bar"}, handleFunc))
 
-customBinding := server.HandlerBinding{
+customBinding := HandlerBinding{
     ExchangeName: "my-exchange",
     ExchangeType: "direct",     
     RoutingKey:   "my-key",     
@@ -61,16 +69,21 @@ s.Bind(customBinding)
 
 #### Middlewares
 
-Middlewares can be hooked to both a handler and to the entire server. And are executed
-when the handler is.
+Middlewares can be hooked to both a specific handler and to the entire server to
+be executed on all request no matter what endpoint. You can also chain
+middlewares to execute them in a specific order or execute multiple ones for
+specific use cases.
 
-The middleware is defined as follows:
+Inspired by the [http](https://godoc.org/net/http), the middleware is defined as
+a function that takes a handler function as input and returns an identical
+handler function.
 
 ```go
-type MiddlewareFunc func(next HandlerFunc) Handlerfunc
+type ServerMiddlewareFunc func(next HandlerFunc) Handlerfunc
 ```
 
-To execute the inner handler call `next` with the correct arguments:
+To execute the inner handler, call `next` with the correct arguments which is
+a context, a response writer and an amqp.Delivery:
 
 ```go
 func myMiddle(next HandlerFunc) HandlerFunc {
@@ -86,16 +99,16 @@ func myMiddle(next HandlerFunc) HandlerFunc {
     }
 }
 
-s := server.New("amqp://guest:guest@localhost:5672")
+s := NewServer("amqp://guest:guest@localhost:5672")
 
 // Add a middleware to specific handler.
-s.Bind(server.DirectBinding("foobar", myMiddle(HandlerFunc)))
+s.Bind(DirectBinding("foobar", myMiddle(HandlerFunc)))
 
 // Add multiple middlewares to specific handler.
 s.Bind(
-    server.DirectBinding(
+    DirectBinding(
         "foobar",
-        MiddlewareChain(
+        ServerMiddlewareChain(
             myHandler,
             middlewareOne,
             middlewareTwo,
@@ -112,21 +125,15 @@ s.ListenAndServe()
 
 ### Client
 
-Similar to the server, a client is passed an URL when calling `New`. To setup
-the connection with TLS either a complete dialconfig or just a certificate type
-can be passed. Everything you usually handle is handled within the client
-package such as creating channels, creating queues, subscribing to said queue
-will be taken care of for you. The client will monitor the connection and
-reconnect if it's lost.
-
-The client is designed to handle publishing and consumption of the reply in a
-non-blocking way to ensure that everyone using a client will get their message
-published as fast as possible and also, if requested, the reply.
+The clien is designed to look similar to the server in usage and be just as easy
+to configure for your likings. One feature of the client is that it's build
+around channels where all messages are mapped to unique correlation IDs. This
+means that the server is non blocking and can handle multiple requests at once.
 
 ```go
-c := client.New("amqp://guest:guest@localhost:5672")
+c := NewClient("amqp://guest:guest@localhost:5672")
 
-request := client.NewRequest("my_endpoint").WithStringBody("My body").WithResponse(true)
+request := NewRequest("my_endpoint").WithStringBody("My body").WithResponse(true)
 response, err := c.Send(request)
 if err != nil {
     logger.Warn("Something went wrong", err)
@@ -135,30 +142,38 @@ if err != nil {
 logger.Info(string(response.Body))
 ```
 
-The client will not connect upon calling new, instead this is made the first
-time a connection is required, usually when calling `Send`. By doint this you're
-able to chain multiple methods after calling new to modify the client settings.
+The client will not connect upon calling the constructor, instead this is made
+the first time a connection is required, usually when calling `Send`. By doing
+this you're able to chain multiple methods after calling new to modify the
+client settings.
 
 ```go
-c := client.New("amqp://guest:guest@localhost:5672").
+c := NewClient("amqp://guest:guest@localhost:5672").
     WithTimeout(5000 * time.Milliseconds).
     WithDialConfig(dialConfig).
     WithTLS(cert).
     WithQueueDeclareSettings(qdSettings).
     WithConsumeSettings(cSettings).
-    WithContentType("application/json").
     WithHeaders(amqp.Table{})
 
 // Will not connect until this call.
-c.Send(client.NewRequest("queue_one"))
+c.Send(NewRequest("queue_one"))
 ```
 
-You can also specify other exchanges than the default one. To send a request
-to a fanout exchange subscribed to by multiple servers you can do this.
+#### Request
+
+To perform requests easily the client expects a `Request` type as input when
+sending messages. This type holds all the information about which exchange,
+headers, body, content type, routing key, timeout and if a reply is desired. If
+a setting can be configured on both the client and the request (i.e. timeout or
+middlewares), the configuration on the request has a higher priority.
+
+This is an example of how to send a fanout request without waiting for
+responses.
 
 ```go
-c := client.New("amqp://guest:guest@localhost:5672")
-r := client.NewRequest("").WithExchange("fanout-exchange").WithResponse(false)
+c := NewClient("amqp://guest:guest@localhost:5672")
+r := NewRequest("").WithExchange("fanout-exchange").WithResponse(false)
 
 _, err := c.Send(r)
 ```
@@ -169,19 +184,19 @@ currently no way to accept multiple responses or responses in a specific order.
 
 #### Middlewares
 
-Just like the server this package is trying to implement features to be able to
-easily plug code before and after a request is being sent with the client. The
-middleware is defined as a function that takes a `SendFunc` and returns a
-`SendFunc`. The client itself implements the `SendFunc` that generates the
-request and publishes it. The function is represented like this.
+Just like the server this framework is implementing support to be able to
+easily plug code before and after a request is being sent with the client.
+
+The middleware is defined as a function that takes a send function and returns a
+send function. The client itself implements the root `SendFunc` that generates the
+request and publishes it.
 
 
 ```go
 type SendFunc func(r *Request) (*amqp.Delivery, error)
 ```
 
-The `Request` is the request passed to `Send` i.e. if you want to add custom
-headers. The `*amqp.Delivery` is the response from the server and potential
+The `*amqp.Delivery` is the response from the server and potential
 errors will be returned as well.
 
 Just like the server you can choose to chain your custom methods to one or just
@@ -211,10 +226,10 @@ Se `examples/middleware` for more examples.
 Usually you don't want to log much in a package but since this can tend to be
 more of a part of an application there are some messages being logged. And an
 easy way to log from the embedded application can be to use the very same
-logger. The logger is two loggers implementing a `Logger` interface which only
-requires `Print` and `Printf`. This means that the standard logger will work
-just fine and will even be provided in the `init()` function called when
-importing the logger.
+logger. The logger package is actually two loggers implementing a `Logger`
+interface which only requires `Print` and `Printf`. This means that the standard
+logger will work just fine and will even be provided in the `init()` function
+called when importing the logger.
 
 The loggers can be overridden with your custom logger by calling `SetInfoLogger`
 or `SetWarnLogger`.
@@ -243,42 +258,32 @@ logger.SetWarnLogger(silentLogger)
 
 ### Connection and TLS
 
-One part of the coding aimed to minimize is the handling of certificates and TLS
-setup. Both the server and the client has the possibility to set an
-`amqp.Config` which also includes the field `TLSClientConfig`.
-
-You can either read more about `amqp.Config` and create your own or just used
-the `Certificates` type to point out the path to different files needed for TLS.
+As a part of the mantra to minimize implementation and handling of the actual
+conections this framework implements a really easy way to use TLS for either the
+server or the client bu just providing the path to CA, cert and key files. Under
+the hood this part only loads the key pair and adds the TLS configuration to the
+amqp configuration field.
 
 ```go
-cert := connection.Certificates{
+cert := Certificates{
     Cert: "/path/to/cert.pem",
     Key:  "/path/to/key.pem",
     CA:   "/path/to/cacert.pem",
 }
 
-// Now we can pass this to New() and connect our server or client with TLS.
+// Now we can pass this to the server or client and connect with TLS.
 uri := "amqps://guest:guest@localhost:5671"
 dialConfig := amqp.Config{
     TLSClientConfig: cert.TLSConfig(),
 }
 
-s := server.New(uri).WithDialConfig(dialConfig)
+s := NewServer(uri).WithDialConfig(dialConfig)
+c := NewClient(uri).WithDialConfig(dialConfig)
 
 s.ListenAndServe()
-
-c := client.New(uri).WithTLS(cert)
 ```
 
 ## Example
 
-There are a few different examples included in the `examples` folder. For more
-information about how to customize your setup, see the documentation (linked
-above).
-
-## Future
-
-Basic functionallity is implemented but in the near future the hope is to add
-more ways to easily customize things such as channel values, consumptions
-values, publishing values. Without compromising the fast way to get started with
-just a few lines of code, of course!
+There are a few examples included in the `examples` folder. For more information
+about how to customize your setup, see the documentation (linked above).

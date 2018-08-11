@@ -6,54 +6,52 @@ import (
 	"log"
 	"os"
 
-	"github.com/bombsimon/amqp-rpc/client"
-	"github.com/bombsimon/amqp-rpc/connection"
+	amqprpc "github.com/bombsimon/amqp-rpc"
 	"github.com/bombsimon/amqp-rpc/logger"
-	"github.com/bombsimon/amqp-rpc/server"
 
 	"github.com/streadway/amqp"
 )
 
-var url = "amqp://guest:guest@localhost:5672/"
+var url = "amqps://guest:guest@localhost:5672/"
 
 func main() {
 	customLogger := log.New(os.Stdout, "[amqp-rpc]", log.LstdFlags)
 	logger.SetInfoLogger(customLogger)
 	logger.SetWarnLogger(customLogger)
 
-	cert := connection.Certificates{
+	cert := amqprpc.Certificates{
 		Cert: "server.crt",
 		Key:  "server.key",
 	}
 
-	s := server.New(url).WithDialConfig(amqp.Config{
+	s := amqprpc.NewServer(url).WithDialConfig(amqp.Config{
 		TLSClientConfig: cert.TLSConfig(),
 	})
 
-	s.Bind(server.DirectBinding("hello_world", handleHelloWorld))
-	s.Bind(server.DirectBinding("client_usage", handleClientUsage))
+	s.Bind(amqprpc.DirectBinding("hello_world", handleHelloWorld))
+	s.Bind(amqprpc.DirectBinding("client_usage", handleClientUsage))
 
 	s.ListenAndServe()
 }
 
-func handleHelloWorld(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+func handleHelloWorld(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
 	logger.Infof("Handling 'Hello world' request")
 
 	fmt.Fprintf(rw, "Got message: %s", d.Body)
 }
 
-func handleClientUsage(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+func handleClientUsage(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
 	logger.Infof("Handling 'Client usage' request")
 
-	cert := connection.Certificates{
+	cert := amqprpc.Certificates{
 		Cert: "client/cert.pem",
 		Key:  "client/key.pem",
 		CA:   "client/cacert.pem",
 	}
 
-	c := client.New("amqps://guest:guest@localhost:5671/").WithTLS(cert)
+	c := amqprpc.NewClient("amqps://guest:guest@localhost:5671/").WithTLS(cert)
 
-	request := client.NewRequest("hello_world").WithStringBody("Sent with client")
+	request := amqprpc.NewRequest("hello_world").WithStringBody("Sent with client")
 	response, err := c.Send(request)
 	if err != nil {
 		logger.Warnf("Something went wrong: %s", err)
