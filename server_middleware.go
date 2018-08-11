@@ -39,7 +39,7 @@ For example:
 
 	s.Bind(DirectBinding(
 		"foobar",
-		MiddlewareChain(
+		ServerMiddlewareChain(
 			myHandler,
 			middlewareOne,
 			middlewareTwo,
