@@ -51,10 +51,9 @@ plugins:
     enabled: true
     config:
       strings:
-        - TODO
         - FIXME
         - BUG
-        - NOTE
+        - HACK
 
 exclude_patterns:
   - "config/"

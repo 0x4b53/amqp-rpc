@@ -58,16 +58,16 @@ s.Bind(HeadersBinding(amqp.Table{"x-match": "all", "foo": "bar"}, handleFunc))
 
 customBinding := HandlerBinding{
     ExchangeName: "my-exchange",
-    ExchangeType: "direct",     
-    RoutingKey:   "my-key",     
-    BindHeaders:  amqp.Table{}, 
-    Handler:      handleFunc,   
+    ExchangeType: "direct",
+    RoutingKey:   "my-key",
+    BindHeaders:  amqp.Table{},
+    Handler:      handleFunc,
 }
 
 s.Bind(customBinding)
 ```
 
-#### Middlewares
+#### Server middlewares
 
 Middlewares can be hooked to both a specific handler and to the entire server to
 be executed on all request no matter what endpoint. You can also chain
@@ -182,7 +182,7 @@ _, err := c.Send(r)
 response will be the first one respondend from any of the subscribers. There is
 currently no way to accept multiple responses or responses in a specific order.
 
-#### Middlewares
+#### Client middlewares
 
 Just like the server this framework is implementing support to be able to
 easily plug code before and after a request is being sent with the client.
