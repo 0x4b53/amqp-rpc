@@ -1,4 +1,4 @@
-package server
+package amqprpc
 
 import (
 	"context"
@@ -7,18 +7,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bombsimon/amqp-rpc/client"
 	"github.com/bombsimon/amqp-rpc/testhelpers"
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
 
+var bindingsTestURL = "amqp://guest:guest@localhost:5672"
+
 func TestFanout(t *testing.T) {
 	var timesCalled int64 = 0
 
-	s1 := New(url)
-	s2 := New(url)
-	s3 := New(url)
+	s1 := NewServer(bindingsTestURL)
+	s2 := NewServer(bindingsTestURL)
+	s3 := NewServer(bindingsTestURL)
 
 	fanoutHandler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		atomic.AddInt64(&timesCalled, 1)
@@ -38,8 +39,8 @@ func TestFanout(t *testing.T) {
 	// Ensure all queues are declared and ready.
 	time.Sleep(1 * time.Second)
 
-	c := client.New(url)
-	_, err := c.Send(client.NewRequest("").WithExchange("fanout-exchange").WithResponse(false))
+	c := NewClient(bindingsTestURL)
+	_, err := c.Send(NewRequest("").WithExchange("fanout-exchange").WithResponse(false))
 
 	// Ensure all handlers have added to the timesCalled variable.
 	time.Sleep(1 * time.Second)
@@ -55,8 +56,8 @@ func TestTopic(t *testing.T) {
 		"baz.*": make(chan string),
 	}
 
-	s := New(url)
-	c := client.New(url)
+	s := NewServer(bindingsTestURL)
+	c := NewClient(bindingsTestURL)
 
 	s.Bind(TopicBinding("foo.#", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		wasCalled["foo.#"] <- string(d.Body)
@@ -91,7 +92,7 @@ func TestTopic(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.request, func(t *testing.T) {
-			_, err := c.Send(client.NewRequest(tc.request).WithStringBody(tc.request).WithExchange("amq.topic").WithResponse(false))
+			_, err := c.Send(NewRequest(tc.request).WithStringBody(tc.request).WithExchange("amq.topic").WithResponse(false))
 			Equal(t, err, nil)
 
 			for key, expectCalled := range tc.called {
@@ -112,8 +113,8 @@ func TestTopic(t *testing.T) {
 }
 
 func TestHeaders(t *testing.T) {
-	s := New(url)
-	c := client.New(url)
+	s := NewServer(bindingsTestURL)
+	c := NewClient(bindingsTestURL)
 
 	handler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "Hello, world")
@@ -130,7 +131,7 @@ func TestHeaders(t *testing.T) {
 	defer stop()
 
 	// Ensure 'somewhere.*' matches 'somewhere.there'.
-	response, err := c.Send(client.NewRequest("").WithExchange("amq.headers").WithHeaders(amqp.Table{"foo": "bar"}))
+	response, err := c.Send(NewRequest("").WithExchange("amq.headers").WithHeaders(amqp.Table{"foo": "bar"}))
 
 	Equal(t, err, nil)
 	Equal(t, response.Body, []byte("Hello, world"))

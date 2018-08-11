@@ -8,16 +8,16 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/bombsimon/amqp-rpc/server"
+	amqprpc "github.com/bombsimon/amqp-rpc"
 
 	"github.com/streadway/amqp"
 )
 
 func main() {
-	s := server.New("amqp://guest:guest@localhost:5672/")
+	s := amqprpc.NewServer("amqp://guest:guest@localhost:5672/")
 
-	s.Bind(server.DirectBinding("upper", upper))
-	s.Bind(server.DirectBinding("beat", beat))
+	s.Bind(amqprpc.DirectBinding("upper", upper))
+	s.Bind(amqprpc.DirectBinding("beat", beat))
 
 	go func() {
 		sigs := make(chan os.Signal, 1)
@@ -29,10 +29,10 @@ func main() {
 	s.ListenAndServe()
 }
 
-func upper(c context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+func upper(c context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
 	fmt.Fprint(rw, strings.ToUpper(string(d.Body)))
 }
 
-func beat(c context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+func beat(c context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
 	fmt.Fprintf(rw, "beat")
 }

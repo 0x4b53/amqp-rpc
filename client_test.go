@@ -1,4 +1,4 @@
-package client
+package amqprpc
 
 import (
 	"context"
@@ -6,25 +6,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bombsimon/amqp-rpc/connection"
-	"github.com/bombsimon/amqp-rpc/server"
 	"github.com/bombsimon/amqp-rpc/testhelpers"
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
 
-var url = "amqp://guest:guest@localhost:5672/"
+var clientTestURL = "amqp://guest:guest@localhost:5672/"
 
 func TestClient(t *testing.T) {
-	s := server.New(url)
-	s.Bind(server.DirectBinding("myqueue", func(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+	s := NewServer(clientTestURL)
+	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
 
 	stop := testhelpers.StartServer(s)
 	defer stop()
 
-	client := New("amqp://guest:guest@localhost:5672/")
+	client := NewClient("amqp://guest:guest@localhost:5672/")
 	NotEqual(t, client, nil)
 
 	request := NewRequest("myqueue").WithStringBody("client testing")
@@ -34,16 +32,16 @@ func TestClient(t *testing.T) {
 }
 
 func TestClientConfig(t *testing.T) {
-	cert := connection.Certificates{}
-	certClient := New(url).WithTLS(cert)
+	cert := Certificates{}
+	certClient := NewClient(clientTestURL).WithTLS(cert)
 
 	NotEqual(t, certClient, nil)
 
 	ac := amqp.Config{}
-	qdSettings := connection.QueueDeclareSettings{}
-	cSettings := connection.ConsumeSettings{}
+	qdSettings := QueueDeclareSettings{}
+	cSettings := ConsumeSettings{}
 
-	acClient := New(url).WithDialConfig(ac).
+	acClient := NewClient(clientTestURL).WithDialConfig(ac).
 		WithQueueDeclareSettings(qdSettings).
 		WithConsumeSettings(cSettings).
 		WithTimeout(2500 * time.Millisecond)
@@ -53,7 +51,7 @@ func TestClientConfig(t *testing.T) {
 
 func TestReconnect(t *testing.T) {
 	dialer, connections := testhelpers.TestDialer(t)
-	client := New(url).WithDialConfig(amqp.Config{Dial: dialer})
+	client := NewClient(clientTestURL).WithDialConfig(amqp.Config{Dial: dialer})
 	NotEqual(t, client, nil)
 
 	// Force a connection by calling send.
@@ -76,8 +74,8 @@ func TestReconnect(t *testing.T) {
 }
 
 func TestTimeout(t *testing.T) {
-	s := server.New(url)
-	s.Bind(server.DirectBinding("myqueue", func(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+	s := NewServer(clientTestURL)
+	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		time.Sleep(1 * time.Millisecond)
 	}))
 
@@ -90,17 +88,17 @@ func TestTimeout(t *testing.T) {
 	}{
 		// Client with timeout but no timeout on the Request.
 		{
-			client:  New(url).WithTimeout(1 * time.Microsecond),
+			client:  NewClient(clientTestURL).WithTimeout(1 * time.Microsecond),
 			request: NewRequest("myqueue"),
 		},
 		// Request with timeout but no timeout on the Client.
 		{
-			client:  New(url),
+			client:  NewClient(clientTestURL),
 			request: NewRequest("myqueue").WithTimeout(1 * time.Microsecond),
 		},
 		// Request timeout overrides the Client timeout.
 		{
-			client:  New(url).WithTimeout(10 * time.Second),
+			client:  NewClient(clientTestURL).WithTimeout(10 * time.Second),
 			request: NewRequest("myqueue").WithTimeout(1 * time.Microsecond),
 		},
 	}

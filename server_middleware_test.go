@@ -1,4 +1,4 @@
-package server
+package amqprpc
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	. "gopkg.in/go-playground/assert.v1"
 )
 
-func traceMiddleware(ID int) MiddlewareFunc {
+func traceServerMiddleware(ID int) ServerMiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
 		return func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 			fmt.Fprint(rw, ID)
@@ -19,15 +19,15 @@ func traceMiddleware(ID int) MiddlewareFunc {
 	}
 }
 
-func TestMiddlewareChain(t *testing.T) {
-	handler := MiddlewareChain(
+func TestServerMiddlewareChain(t *testing.T) {
+	handler := ServerMiddlewareChain(
 		func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 			fmt.Fprint(rw, "X")
 		},
-		traceMiddleware(1),
-		traceMiddleware(2),
-		traceMiddleware(3),
-		traceMiddleware(4),
+		traceServerMiddleware(1),
+		traceServerMiddleware(2),
+		traceServerMiddleware(3),
+		traceServerMiddleware(4),
 	)
 
 	rWriter := &ResponseWriter{

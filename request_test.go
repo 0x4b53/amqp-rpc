@@ -1,11 +1,10 @@
-package client
+package amqprpc
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
-	"github.com/bombsimon/amqp-rpc/server"
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
@@ -13,14 +12,14 @@ import (
 func TestRequest(t *testing.T) {
 	var url = "amqp://guest:guest@localhost:5672/"
 
-	s := server.New(url)
-	s.Bind(server.DirectBinding("myqueue", func(ctx context.Context, rw *server.ResponseWriter, d amqp.Delivery) {
+	s := NewServer(url)
+	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
 
 	go s.ListenAndServe()
 
-	client := New(url)
+	client := NewClient(url)
 	NotEqual(t, client, nil)
 
 	// Test simple form.

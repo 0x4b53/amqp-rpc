@@ -1,7 +1,7 @@
-package server
+package amqprpc
 
 /*
-MiddlewareFunc represent a function that can be used as a middleware.
+ServerMiddlewareFunc represent a function that can be used as a middleware.
 
 For example:
 
@@ -27,10 +27,10 @@ For example:
 	// Add middleware to all handlers on the server.
 	s.AddMiddleware(myMiddle)
 */
-type MiddlewareFunc func(next HandlerFunc) HandlerFunc
+type ServerMiddlewareFunc func(next HandlerFunc) HandlerFunc
 
 /*
-MiddlewareChain will attatch all given middlewares to your HandlerFunc.
+ServerMiddlewareChain will attatch all given middlewares to your HandlerFunc.
 The middlewares will be executed in the same order as your input.
 
 For example:
@@ -47,7 +47,7 @@ For example:
 		),
 	))
 */
-func MiddlewareChain(next HandlerFunc, m ...MiddlewareFunc) HandlerFunc {
+func ServerMiddlewareChain(next HandlerFunc, m ...ServerMiddlewareFunc) HandlerFunc {
 	if len(m) == 0 {
 		// The middleware chain is done. All middlewares have been applied.
 		return next
@@ -55,5 +55,5 @@ func MiddlewareChain(next HandlerFunc, m ...MiddlewareFunc) HandlerFunc {
 
 	// Nest the middlewares so that we attatch them in order.
 	// The first middleware will have the second middleware applied, and so on.
-	return m[0](MiddlewareChain(next, m[1:cap(m)]...))
+	return m[0](ServerMiddlewareChain(next, m[1:cap(m)]...))
 }

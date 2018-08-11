@@ -1,11 +1,10 @@
-package client
+package amqprpc
 
 import (
 	"errors"
 	"sync"
 	"time"
 
-	"github.com/bombsimon/amqp-rpc/connection"
 	"github.com/bombsimon/amqp-rpc/logger"
 	uuid "github.com/satori/go.uuid"
 	"github.com/streadway/amqp"
@@ -55,15 +54,15 @@ type Client struct {
 
 	// queueDeclareSettings is configuration used when declaring a RabbitMQ
 	// queue.
-	queueDeclareSettings connection.QueueDeclareSettings
+	queueDeclareSettings QueueDeclareSettings
 
 	// consumeSettings is configuration used when consuming from the message
 	// bus.
-	consumeSettings connection.ConsumeSettings
+	consumeSettings ConsumeSettings
 
 	// publishSettings is the configuration used when publishing a message with
 	// the client
-	publishSettings connection.PublishSettings
+	publishSettings PublishSettings
 
 	// replyToQueueName can be used to avoid generating queue names on the message
 	// bus and use a pre defined name throughout the usage of a client.
@@ -77,10 +76,10 @@ type Client struct {
 
 	// middlewares holds slice of middlewares to run before or after the client
 	// sends a request.
-	middlewares []MiddlewareFunc
+	middlewares []ClientMiddlewareFunc
 }
 
-// New will return a pointer to a new Client. There are two ways to manage the
+// NewClient will return a pointer to a new Client. There are two ways to manage the
 // connection that will be used by the client (i.e. when using TLS).
 //
 // The first one is to use the Certificates type and just pass the filenames to
@@ -90,17 +89,17 @@ type Client struct {
 // It is also possible to create a custom amqp.Config with whatever
 // configuration desired and that will be used as dial configuration when
 // connection to the message bus.
-func New(url string) *Client {
+func NewClient(url string) *Client {
 	c := &Client{
 		url: url,
 		dialconfig: amqp.Config{
-			Dial: connection.DefaultDialer,
+			Dial: DefaultDialer,
 		},
 		requests:           make(chan *Request),
 		correlationMapping: make(map[string]chan *amqp.Delivery),
 		mu:                 sync.RWMutex{},
 		replyToQueueName:   "reply-to-" + uuid.Must(uuid.NewV4()).String(),
-		middlewares:        []MiddlewareFunc{},
+		middlewares:        []ClientMiddlewareFunc{},
 		timeout:            time.Second * 10,
 	}
 
@@ -118,7 +117,7 @@ func (c *Client) WithDialConfig(dc amqp.Config) *Client {
 }
 
 // WithTLS sets the TLS config in the dial config for the client.
-func (c *Client) WithTLS(cert connection.Certificates) *Client {
+func (c *Client) WithTLS(cert Certificates) *Client {
 	c.dialconfig.TLSClientConfig = cert.TLSConfig()
 
 	return c
@@ -126,7 +125,7 @@ func (c *Client) WithTLS(cert connection.Certificates) *Client {
 
 // WithQueueDeclareSettings will set the settings used when declaring queues
 // for the client globally.
-func (c *Client) WithQueueDeclareSettings(s connection.QueueDeclareSettings) *Client {
+func (c *Client) WithQueueDeclareSettings(s QueueDeclareSettings) *Client {
 	c.queueDeclareSettings = s
 
 	return c
@@ -134,7 +133,7 @@ func (c *Client) WithQueueDeclareSettings(s connection.QueueDeclareSettings) *Cl
 
 // WithConsumeSettings will set the settings used when consuming in the client
 // globally.
-func (c *Client) WithConsumeSettings(s connection.ConsumeSettings) *Client {
+func (c *Client) WithConsumeSettings(s ConsumeSettings) *Client {
 	c.consumeSettings = s
 
 	return c
@@ -148,14 +147,14 @@ func (c *Client) WithTimeout(t time.Duration) *Client {
 }
 
 // AddMiddleware will add a middleware which will be executed on request.
-func (c *Client) AddMiddleware(m MiddlewareFunc) *Client {
+func (c *Client) AddMiddleware(m ClientMiddlewareFunc) *Client {
 	c.middlewares = append(c.middlewares, m)
 
 	return c
 }
 
 func (c *Client) setDefaults() {
-	c.queueDeclareSettings = connection.QueueDeclareSettings{
+	c.queueDeclareSettings = QueueDeclareSettings{
 		Durable:          false,
 		DeleteWhenUnused: true,
 		Exclusive:        true,
@@ -163,7 +162,7 @@ func (c *Client) setDefaults() {
 		Args:             nil,
 	}
 
-	c.consumeSettings = connection.ConsumeSettings{
+	c.consumeSettings = ConsumeSettings{
 		Consumer:  "",
 		AutoAck:   true,
 		Exclusive: false,
@@ -172,7 +171,7 @@ func (c *Client) setDefaults() {
 		Args:      nil,
 	}
 
-	c.publishSettings = connection.PublishSettings{
+	c.publishSettings = PublishSettings{
 		Mandatory: false,
 		Immediate: false,
 	}
@@ -377,7 +376,7 @@ func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 
 	middlewares := append(c.middlewares, r.middlewares...)
 
-	return MiddlewareChain(c.send, middlewares...)(r)
+	return ClientMiddlewareChain(c.send, middlewares...)(r)
 }
 
 func (c *Client) send(r *Request) (*amqp.Delivery, error) {
