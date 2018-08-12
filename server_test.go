@@ -3,7 +3,6 @@ package amqprpc
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -118,63 +117,4 @@ func TestServerReconnect(t *testing.T) {
 
 		Equal(t, reply.Body, []byte(fmt.Sprintf("Got message: %s", message)))
 	}
-}
-
-func TestServerPanicRecovery(t *testing.T) {
-	calls := map[string]int{
-		"crash":       0,
-		"crash-retry": 0,
-	}
-
-	panicHandler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-		key := ctx.Value(CtxQueueName).(string)
-		calls[key]++
-
-		panic("not your best friend")
-	}
-
-	s1 := NewServer(serverTestURL).WithMaxRetries(0)
-	s2 := NewServer(serverTestURL).WithMaxRetries(2)
-
-	s1.Bind(DirectBinding("crash", panicHandler))
-	s2.Bind(DirectBinding("crash-retry", panicHandler))
-
-	s1Stop := testhelpers.StartServer(s1)
-	s2Stop := testhelpers.StartServer(s2)
-	defer s1Stop()
-	defer s2Stop()
-
-	c := NewClient(serverTestURL)
-
-	// XXX: First server should not retry at all
-	r := NewRequest("crash")
-	reply, err := c.Send(r)
-
-	NotEqual(t, err, nil)
-	Equal(t, err, ErrServerCrashed)
-
-	NotEqual(t, reply, nil)
-	Equal(t, strings.HasPrefix(string(reply.Body), "crashed when running handler"), true)
-
-	// No retries was made when using s1
-	Equal(t, calls["crash"], 1)
-
-	// XXX: Second server should retry two times.
-	r = NewRequest("crash-retry")
-	reply, err = c.Send(r)
-
-	NotEqual(t, err, nil)
-	NotEqual(t, reply, nil)
-
-	// More than one new tries should exist when using s2
-	Equal(t, calls["crash-retry"] >= 2, true)
-
-	// XXX: Third server should result in a timeout since we retry so many
-	// times we're not there to listen to the final anwser.
-	r = NewRequest("crash-retry").WithTimeout(2 * time.Second)
-	reply, err = c.Send(r)
-
-	NotEqual(t, err, nil)
-	Equal(t, err, ErrTimeout)
-	Equal(t, reply, nil)
 }

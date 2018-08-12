@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	s := amqprpc.NewServer("amqp://guest:guest@localhost:5672/").WithMaxRetries(2)
+	s := amqprpc.NewServer("amqp://guest:guest@localhost:5672/")
 
 	s.Bind(amqprpc.DirectBinding("upper", upper))
 	s.Bind(amqprpc.DirectBinding("beat", beat))
@@ -30,10 +30,6 @@ func main() {
 }
 
 func upper(c context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
-	if string(d.Body) == "crash\n" {
-		panic("I died..")
-	}
-
 	fmt.Fprint(rw, strings.ToUpper(string(d.Body)))
 }
 
