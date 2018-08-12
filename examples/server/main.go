@@ -9,12 +9,13 @@ import (
 	"syscall"
 
 	amqprpc "github.com/bombsimon/amqp-rpc"
+	amqprpcmw "github.com/bombsimon/amqp-rpc/middleware"
 
 	"github.com/streadway/amqp"
 )
 
 func main() {
-	s := amqprpc.NewServer("amqp://guest:guest@localhost:5672/")
+	s := amqprpc.NewServer("amqp://guest:guest@localhost:5672/").AddMiddleware(amqprpcmw.PanicRecovery)
 
 	s.Bind(amqprpc.DirectBinding("upper", upper))
 	s.Bind(amqprpc.DirectBinding("beat", beat))
@@ -30,6 +31,10 @@ func main() {
 }
 
 func upper(c context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
+	if string(d.Body) == "crash\n" {
+		panic("I died...")
+	}
+
 	fmt.Fprint(rw, strings.ToUpper(string(d.Body)))
 }
 
