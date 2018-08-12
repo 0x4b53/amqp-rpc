@@ -203,15 +203,15 @@ Just like the server you can choose to chain your custom methods to one or just
 add them one by one with the add interface.
 
 ```go
-c := New(url).AddMiddleware(MySendMiddleware)
+c := NewClient(url).AddMiddleware(MySendMiddleware)
 ```
 
 The client can also take middlewares for single requests with the exact same
 interface.
 
 ```go
-c := New(url).AddMiddleware(MySendMiddleware)
-r := NewRequest("some.where").AddMiddleware(MyMorImportantMiddleware)
+c := NewClient(url).AddMiddleware(MySendMiddleware)
+r := NewRequest("some.where").AddMiddleware(MyMoreImportantMiddleware)
 
 c.Send(r)
 ```
@@ -283,7 +283,7 @@ c := NewClient(uri).WithDialConfig(dialConfig)
 s.ListenAndServe()
 ```
 
-## Example
+## Examples
 
 There are a few examples included in the `examples` folder. For more information
 about how to customize your setup, see the documentation (linked above).
