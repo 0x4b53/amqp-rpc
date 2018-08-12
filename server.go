@@ -288,16 +288,30 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 
 		ctx := context.WithValue(context.Background(), CtxQueueName, queueName)
 
-		// TODO: Recover panic in handler. And use delivery.Nack() so amqp will retry.
-		handler(ctx, &rw, delivery)
-		delivery.Ack(false)
-
-		s.responses <- processedRequest{
-			replyTo:    delivery.ReplyTo,
-			mandatory:  rw.mandatory,
-			immediate:  rw.immediate,
-			publishing: *rw.publishing,
+		// Use the default provided Acknowledger for the delivery
+		// (amqp.Channel) and add our ack aware acknowledger which can tell if
+		// a message has been acknowledged (ack, nack or rejected).
+		aac := ackAwareChannel{
+			ch:      delivery.Acknowledger,
+			handled: false,
 		}
+
+		delivery.Acknowledger = &aac
+
+		go func(delivery amqp.Delivery) {
+			handler(ctx, &rw, delivery)
+
+			if !aac.IsHandled() {
+				delivery.Ack(false)
+			}
+
+			s.responses <- processedRequest{
+				replyTo:    delivery.ReplyTo,
+				mandatory:  rw.mandatory,
+				immediate:  rw.immediate,
+				publishing: *rw.publishing,
+			}
+		}(delivery)
 	}
 
 	logger.Infof("server: stopped waiting for messages on queue '%s'", queueName)
