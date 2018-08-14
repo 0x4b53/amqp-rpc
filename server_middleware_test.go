@@ -30,11 +30,22 @@ func TestServerMiddlewareChain(t *testing.T) {
 		traceServerMiddleware(4),
 	)
 
+	unevenHandler := ServerMiddlewareChain(
+		func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+			fmt.Fprint(rw, "Y")
+		},
+		traceServerMiddleware(1),
+		traceServerMiddleware(2),
+		traceServerMiddleware(3),
+	)
+
 	rWriter := &ResponseWriter{
 		publishing: &amqp.Publishing{},
 	}
 
 	handler(context.Background(), rWriter, amqp.Delivery{})
-
 	Equal(t, string(rWriter.Publishing().Body), "1234X4321")
+
+	unevenHandler(context.Background(), rWriter, amqp.Delivery{})
+	Equal(t, string(rWriter.Publishing().Body), "1234X4321123Y321")
 }
