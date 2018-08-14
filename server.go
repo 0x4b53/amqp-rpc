@@ -277,6 +277,12 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 	logger.Infof("server: waiting for messages on queue '%s'", queueName)
 
 	for delivery := range deliveries {
+		// Add one delta to the wait group each time a delivery is handled so
+		// we can end by marking it as done. This will ensure that we don't
+		// close the responses channel until the very last go routin handling a
+		// delivery is finished even though we handle them concurrently.
+		wg.Add(1)
+
 		logger.Infof("server: got delivery on queue %v correlation id %v", queueName, delivery.CorrelationId)
 
 		rw := ResponseWriter{
@@ -311,6 +317,9 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 				immediate:  rw.immediate,
 				publishing: *rw.publishing,
 			}
+
+			// Mark the specific delivery as finished.
+			wg.Done()
 		}(delivery)
 	}
 
