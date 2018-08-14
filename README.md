@@ -191,7 +191,6 @@ The middleware is defined as a function that takes a send function and returns a
 send function. The client itself implements the root `SendFunc` that generates the
 request and publishes it.
 
-
 ```go
 type SendFunc func(r *Request) (*amqp.Delivery, error)
 ```
