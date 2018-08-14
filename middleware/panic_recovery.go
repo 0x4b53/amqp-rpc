@@ -20,10 +20,23 @@ func PanicRecovery(next amqprpc.HandlerFunc) amqprpc.HandlerFunc {
 	return func(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
 		defer func() {
 			if r := recover(); r != nil {
+				var crashMessage string
+
 				logger.Warnf("handler caused a panic: %s", r)
 
-				rw.WriteHeader(HandlerCrashedHeader, r.(string))
-				fmt.Fprintf(rw, "crashed when running handler: %s", r.(string))
+				switch v := r.(type) {
+				case error:
+					crashMessage = v.Error()
+				case string:
+					crashMessage = v
+				case fmt.Stringer:
+					crashMessage = v.String()
+				default:
+					crashMessage = "unknown"
+				}
+
+				rw.WriteHeader(HandlerCrashedHeader, crashMessage)
+				fmt.Fprintf(rw, "crashed when running handler: %s", crashMessage)
 
 				// Nack message, do not requeue
 				d.Nack(true, false)
