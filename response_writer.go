@@ -18,6 +18,13 @@ type ResponseWriter struct {
 	immediate  bool
 }
 
+// NewResponseWriter will create a new response writer with given amqp.Publishing.
+func NewResponseWriter(p *amqp.Publishing) *ResponseWriter {
+	return &ResponseWriter{
+		publishing: p,
+	}
+}
+
 // Write will write the response Body of the amqp.Publishing.
 // It is safe to call Write multiple times.
 func (rw *ResponseWriter) Write(p []byte) (int, error) {
