@@ -128,7 +128,10 @@ func TestGracefulShutdown(t *testing.T) {
 
 	c.Stop()
 
+	// We should have a new synx.Once and reconnect after a disconnect.
 	time.Sleep(50 * time.Millisecond)
 
-	Equal(t, c.publisherRunning, false)
+	r, err = c.Send(NewRequest("myqueue"))
+	Equal(t, err, nil)
+	Equal(t, string(r.Body), "hello")
 }
