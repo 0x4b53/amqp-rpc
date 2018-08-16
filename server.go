@@ -2,7 +2,6 @@ package amqprpc
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -18,13 +17,6 @@ const (
 	// CtxQueueName can be used to get the queue name from the context.Context
 	// inside the HandlerFunc.
 	CtxQueueName ctxKey = "queue_name"
-)
-
-var (
-	// ErrUnexpectedConnClosed is returned by ListenAndServe() if the server
-	// shuts down without calling Stop() and if AMQP does not give an error
-	// when said shutdown happens.
-	ErrUnexpectedConnClosed = errors.New("unexpected connection close without specific error")
 )
 
 // HandlerFunc is the function that handles all request based on the routing key.
@@ -207,24 +199,7 @@ func (s *Server) waitForShutdown(inputConn, outputConn *amqp.Connection, inputCh
 	inputConnClosed := inputConn.NotifyClose(make(chan *amqp.Error))
 	outputConnClosed := outputConn.NotifyClose(make(chan *amqp.Error))
 
-	// Wait for server shutdown.
-	select {
-	// Check to see if the connections are closed without .Stop() beeing called first.
-	// This counts as an error even if AMQP thinks this was a graceful shutdown.
-	case err, ok := <-inputConnClosed:
-		if !ok {
-			return ErrUnexpectedConnClosed
-		}
-		return err
-	case err, ok := <-outputConnClosed:
-		if !ok {
-			return ErrUnexpectedConnClosed
-		}
-		return err
-	// stopChan will be closed when .Stop() is called.
-	case <-s.stopChan:
-		return nil
-	}
+	return monitorChannels(s.stopChan, []chan *amqp.Error{inputConnClosed, outputConnClosed})
 }
 
 func (s *Server) startConsumers(inputCh *amqp.Channel, wg *sync.WaitGroup) ([]string, error) {

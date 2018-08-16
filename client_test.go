@@ -109,3 +109,26 @@ func TestTimeout(t *testing.T) {
 		Equal(t, response, nil)
 	}
 }
+
+func TestGracefulShutdown(t *testing.T) {
+	s := NewServer(clientTestURL)
+	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		fmt.Fprintf(rw, "hello")
+	}))
+
+	stop := testhelpers.StartServer(s)
+	defer stop()
+
+	c := NewClient(clientTestURL)
+
+	r, err := c.Send(NewRequest("myqueue"))
+
+	Equal(t, err, nil)
+	Equal(t, string(r.Body), "hello")
+
+	c.Stop()
+
+	time.Sleep(50 * time.Millisecond)
+
+	Equal(t, c.publisherRunning, false)
+}

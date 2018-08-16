@@ -1,19 +1,12 @@
 package amqprpc
 
 import (
-	"errors"
 	"sync"
 	"time"
 
 	"github.com/bombsimon/amqp-rpc/logger"
 	uuid "github.com/satori/go.uuid"
 	"github.com/streadway/amqp"
-)
-
-var (
-	// ErrTimeout is an error returned when a client request does not
-	// receive a response within the client timeout duration.
-	ErrTimeout = errors.New("request timed out")
 )
 
 // Client represents an AMQP client used within a RPC framework.
@@ -77,6 +70,10 @@ type Client struct {
 	// middlewares holds slice of middlewares to run before or after the client
 	// sends a request.
 	middlewares []ClientMiddlewareFunc
+
+	// stopChan channel is used to signal shutdowns when calling Stop(). The
+	// channel will be closed when Stop() is called.
+	stopChan chan struct{}
 }
 
 // NewClient will return a pointer to a new Client. There are two ways to manage the
@@ -226,12 +223,20 @@ func (c *Client) runOnce(url string) error {
 
 	c.runPublisher(outputCh)
 
-	err, ok := <-conn.NotifyClose(make(chan *amqp.Error))
-	if !ok {
-		// The connection was closed gracefully.
-		return nil
-	}
-	// The connection wasn't closed gracefully.
+	amqpChannel := conn.NotifyClose(make(chan *amqp.Error))
+	err = monitorChannels(c.stopChan, []chan *amqp.Error{amqpChannel})
+
+	// If the user calls Stop() but then starts to use the client again we must ensure that a new connection will be setup.
+	c.publisherRunning = false
+
+	// There's not really a need to ensure that te requests chan has published
+	// all it's messages or that the responses for a given request is received
+	// since the send function which will add messages to the queue are
+	// blocking until the response has arrived. The only reason to check this
+	// would be if a request was sent where a reply was not desired and the
+	// user immediatle closed their program before the request was published. I
+	// think this is something for the user of the client to handle.
+
 	return err
 }
 
@@ -364,6 +369,8 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 
 func (c *Client) ensureRunning() {
 	if !c.publisherRunning {
+		c.stopChan = make(chan struct{})
+
 		go c.runForever(c.url)
 
 		c.publisherRunning = true
@@ -426,4 +433,11 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 		logger.Info("client: got delivery")
 		return delivery, nil
 	}
+}
+
+// Stop will gracefully disconnect from AMQP after draining first incoming then
+// outgoing messages. This method won't wait for server shutdown to complete,
+// you should instead wait for ListenAndServe to exit.
+func (c *Client) Stop() {
+	close(c.stopChan)
 }
