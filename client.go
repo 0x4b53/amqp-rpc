@@ -61,12 +61,6 @@ type Client struct {
 	// bus and use a pre defined name throughout the usage of a client.
 	replyToQueueName string
 
-	// running holds the state telling if the client is running the publisher
-	// and reply consumer. By default this is false when a client is created
-	// but will be set to true after the runner is called the first time the
-	// client needs to connect.
-	publisherRunning bool
-
 	// middlewares holds slice of middlewares to run before or after the client
 	// sends a request.
 	middlewares []ClientMiddlewareFunc
@@ -74,6 +68,12 @@ type Client struct {
 	// stopChan channel is used to signal shutdowns when calling Stop(). The
 	// channel will be closed when Stop() is called.
 	stopChan chan struct{}
+
+	// once is a sync Once which is used to only call ensure running once per
+	// connection. When the runner for the publisher is stopped a new synx.Once
+	// will be created to ensure the function connection and starting the
+	// publisher will be called.
+	once sync.Once
 }
 
 // NewClient will return a pointer to a new Client. There are two ways to manage the
@@ -98,6 +98,7 @@ func NewClient(url string) *Client {
 		replyToQueueName:   "reply-to-" + uuid.Must(uuid.NewV4()).String(),
 		middlewares:        []ClientMiddlewareFunc{},
 		timeout:            time.Second * 10,
+		once:               sync.Once{},
 	}
 
 	// Set default values to use when crearing channels and consumers.
@@ -221,13 +222,20 @@ func (c *Client) runOnce(url string) error {
 		return err
 	}
 
-	c.runPublisher(outputCh)
+	go c.runPublisher(outputCh)
 
 	amqpChannel := conn.NotifyClose(make(chan *amqp.Error))
 	err = monitorChannels(c.stopChan, []chan *amqp.Error{amqpChannel})
 
-	// If the user calls Stop() but then starts to use the client again we must ensure that a new connection will be setup.
-	c.publisherRunning = false
+	// If the user calls Stop() but then starts to use the client again we must
+	// ensure that a new connection will be setup. We do this by creating a new
+	// sync.Once so the method ensureRunning will be called again.
+	c.once = sync.Once{}
+
+	// Close the request channel since it's bound to a now closed connection.
+	// We must create a new one.
+	close(c.requests)
+	c.requests = make(chan *Request)
 
 	// There's not really a need to ensure that te requests chan has published
 	// all it's messages or that the responses for a given request is received
@@ -261,56 +269,57 @@ func (c *Client) declareChannels(conn *amqp.Connection) (*amqp.Channel, *amqp.Ch
 // in chan requests unless we have retried to many times.
 func (c *Client) runPublisher(outChan *amqp.Channel) {
 	logger.Info("client: running publisher")
-	go func() {
-		for request := range c.requests {
-			replyToQueueName := ""
 
-			if request.Reply {
-				// We only need the replyTo queue if we actually want a reply.
-				replyToQueueName = c.replyToQueueName
-			}
+	for request := range c.requests {
+		replyToQueueName := ""
 
-			logger.Infof("client: publishing %v", request.correlationID)
-
-			err := outChan.Publish(
-				request.Exchange,
-				request.RoutingKey,
-				c.publishSettings.Mandatory,
-				c.publishSettings.Immediate,
-				amqp.Publishing{
-					Headers:       request.Headers,
-					ContentType:   request.ContentType,
-					ReplyTo:       replyToQueueName,
-					Body:          request.Body,
-					CorrelationId: request.correlationID,
-				},
-			)
-
-			if err != nil {
-				if request.numRetries >= 0 {
-					// The message that we tried to publish is NOT added back
-					// to the queue since it never left the client. The sender
-					// will get an error back and should handle this manually!
-					logger.Warn("client: could not publish message, giving up")
-					request.errChan <- err
-				} else {
-					logger.Warn("client: could not publish message, retrying")
-					request.numRetries++
-					c.requests <- request
-				}
-
-				return
-			}
-
-			if !request.Reply {
-				// We don't expect a response, so just respond directly here
-				// with nil to let send() return.
-				request.response <- nil
-			}
-
-			logger.Info("client: did publish message")
+		if request.Reply {
+			// We only need the replyTo queue if we actually want a reply.
+			replyToQueueName = c.replyToQueueName
 		}
-	}()
+
+		logger.Infof("client: publishing %v", request.correlationID)
+
+		err := outChan.Publish(
+			request.Exchange,
+			request.RoutingKey,
+			c.publishSettings.Mandatory,
+			c.publishSettings.Immediate,
+			amqp.Publishing{
+				Headers:       request.Headers,
+				ContentType:   request.ContentType,
+				ReplyTo:       replyToQueueName,
+				Body:          request.Body,
+				CorrelationId: request.correlationID,
+			},
+		)
+
+		if err != nil {
+			if request.numRetries > 0 {
+				// The message that we tried to publish is NOT added back
+				// to the queue since it never left the client. The sender
+				// will get an error back and should handle this manually!
+				logger.Warn("client: could not publish message, giving up")
+				request.errChan <- err
+			} else {
+				logger.Warn("client: could not publish message, retrying")
+				request.numRetries++
+				c.requests <- request
+			}
+
+			return
+		}
+
+		if !request.Reply {
+			// We don't expect a response, so just respond directly here
+			// with nil to let send() return.
+			request.response <- nil
+		}
+
+		logger.Info("client: did publish message")
+	}
+
+	logger.Info("client: publisher stopped")
 }
 
 // runRepliesConsumer will declare and start consuming from the queue where we
@@ -367,19 +376,18 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 	return nil
 }
 
-func (c *Client) ensureRunning() {
-	if !c.publisherRunning {
-		c.stopChan = make(chan struct{})
-
-		go c.runForever(c.url)
-
-		c.publisherRunning = true
-	}
-}
-
 // Send will send a Request by using a amqp.Publishing.
 func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
-	c.ensureRunning()
+	// Ensure that the publisher is running. The Once is recreated on each
+	// disconnect and since it has it's own mutex we don't need any other
+	// locks.
+	c.once.Do(
+		func() {
+			c.stopChan = make(chan struct{})
+
+			go c.runForever(c.url)
+		},
+	)
 
 	middlewares := append(c.middlewares, r.middlewares...)
 
