@@ -182,16 +182,15 @@ func (c *Client) setDefaults() {
 func (c *Client) runForever(url string) {
 	for {
 		logger.Info("client: connecting...")
-		err := c.runOnce(url)
 
-		if err != nil {
-			logger.Warnf("client: got error: %s, will reconnect in %v second(s)", err, 0.5)
-			time.Sleep(500 * time.Millisecond)
-			continue
+		err := c.runOnce(url)
+		if err == nil {
+			logger.Info("client: finished gracefully")
+			break
 		}
 
-		logger.Info("client: finished gracefully")
-		break
+		logger.Warnf("client: got error: %s, will reconnect in %v second(s)", err, 0.5)
+		time.Sleep(500 * time.Millisecond)
 	}
 }
 
@@ -229,21 +228,8 @@ func (c *Client) runOnce(url string) error {
 
 	// If the user calls Stop() but then starts to use the client again we must
 	// ensure that a new connection will be setup. We do this by creating a new
-	// sync.Once so the method ensureRunning will be called again.
+	// sync.Once so the method runForever will be called again.
 	c.once = sync.Once{}
-
-	// Close the request channel since it's bound to a now closed connection.
-	// We must create a new one.
-	close(c.requests)
-	c.requests = make(chan *Request)
-
-	// There's not really a need to ensure that te requests chan has published
-	// all it's messages or that the responses for a given request is received
-	// since the send function which will add messages to the queue are
-	// blocking until the response has arrived. The only reason to check this
-	// would be if a request was sent where a reply was not desired and the
-	// user immediatle closed their program before the request was published. I
-	// think this is something for the user of the client to handle.
 
 	return err
 }
@@ -270,56 +256,63 @@ func (c *Client) declareChannels(conn *amqp.Connection) (*amqp.Channel, *amqp.Ch
 func (c *Client) runPublisher(outChan *amqp.Channel) {
 	logger.Info("client: running publisher")
 
-	for request := range c.requests {
-		replyToQueueName := ""
+	for {
+		select {
+		case <-c.stopChan:
+			logger.Info("client: publisher stopped after stop chan was closed")
+			return
 
-		if request.Reply {
-			// We only need the replyTo queue if we actually want a reply.
-			replyToQueueName = c.replyToQueueName
-		}
+		case request, _ := <-c.requests:
+			replyToQueueName := ""
 
-		logger.Infof("client: publishing %v", request.correlationID)
-
-		err := outChan.Publish(
-			request.Exchange,
-			request.RoutingKey,
-			c.publishSettings.Mandatory,
-			c.publishSettings.Immediate,
-			amqp.Publishing{
-				Headers:       request.Headers,
-				ContentType:   request.ContentType,
-				ReplyTo:       replyToQueueName,
-				Body:          request.Body,
-				CorrelationId: request.correlationID,
-			},
-		)
-
-		if err != nil {
-			if request.numRetries > 0 {
-				// The message that we tried to publish is NOT added back
-				// to the queue since it never left the client. The sender
-				// will get an error back and should handle this manually!
-				logger.Warn("client: could not publish message, giving up")
-				request.errChan <- err
-			} else {
-				logger.Warn("client: could not publish message, retrying")
-				request.numRetries++
-				c.requests <- request
+			if request.Reply {
+				// We only need the replyTo queue if we actually want a reply.
+				replyToQueueName = c.replyToQueueName
 			}
 
-			return
-		}
+			logger.Infof("client: publishing %v", request.correlationID)
 
-		if !request.Reply {
-			// We don't expect a response, so just respond directly here
-			// with nil to let send() return.
-			request.response <- nil
-		}
+			err := outChan.Publish(
+				request.Exchange,
+				request.RoutingKey,
+				c.publishSettings.Mandatory,
+				c.publishSettings.Immediate,
+				amqp.Publishing{
+					Headers:       request.Headers,
+					ContentType:   request.ContentType,
+					ReplyTo:       replyToQueueName,
+					Body:          request.Body,
+					CorrelationId: request.correlationID,
+				},
+			)
 
-		logger.Info("client: did publish message")
+			if err != nil {
+				if request.numRetries > 0 {
+					// The message that we tried to publish is NOT added back
+					// to the queue since it never left the client. The sender
+					// will get an error back and should handle this manually!
+					logger.Warn("client: could not publish message, giving up")
+					request.errChan <- err
+				} else {
+					logger.Warn("client: could not publish message, retrying")
+
+					request.numRetries++
+					c.requests <- request
+				}
+
+				logger.Info("client: publisher stopped because of error")
+				return
+			}
+
+			if !request.Reply {
+				// We don't expect a response, so just respond directly here
+				// with nil to let send() return.
+				request.response <- nil
+			}
+
+			logger.Info("client: did publish message")
+		}
 	}
-
-	logger.Info("client: publisher stopped")
 }
 
 // runRepliesConsumer will declare and start consuming from the queue where we
