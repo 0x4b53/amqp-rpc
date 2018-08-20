@@ -167,7 +167,13 @@ func (s *Server) listenAndServe() error {
 	responderWg := sync.WaitGroup{}
 	go s.responder(outputCh, &responderWg)
 
-	err = s.waitForShutdown(inputConn, outputConn, inputCh, outputCh)
+	err = monitorAndWait(
+		s.stopChan,
+		inputConn.NotifyClose(make(chan *amqp.Error)),
+		outputConn.NotifyClose(make(chan *amqp.Error)),
+		inputCh.NotifyClose(make(chan *amqp.Error)),
+		outputCh.NotifyClose(make(chan *amqp.Error)),
+	)
 	if err != nil {
 		return err
 	}
@@ -193,13 +199,6 @@ func (s *Server) listenAndServe() error {
 	// The closing of connections and channels are defered so we can just return now.
 
 	return nil
-}
-
-func (s *Server) waitForShutdown(inputConn, outputConn *amqp.Connection, inputCh, outputCh *amqp.Channel) error {
-	inputConnClosed := inputConn.NotifyClose(make(chan *amqp.Error))
-	outputConnClosed := outputConn.NotifyClose(make(chan *amqp.Error))
-
-	return monitorChannels(s.stopChan, []chan *amqp.Error{inputConnClosed, outputConnClosed})
 }
 
 func (s *Server) startConsumers(inputCh *amqp.Channel, wg *sync.WaitGroup) ([]string, error) {
@@ -352,12 +351,7 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 	wg.Add(1)
 	defer wg.Done()
 
-	for {
-		response, ok := <-s.responses
-		if !ok {
-			return
-		}
-
+	for response := range s.responses {
 		err := outCh.Publish(
 			"", // exchange
 			response.replyTo,
@@ -367,13 +361,13 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 		)
 
 		if err != nil {
-			// An error here means that the connection that outCh is using
-			// isn't working properly. We trust that this function will be
-			// restarted by listenAndServe in this case.
+			logger.Warnf("server: could not publish response: %s", err.Error())
+			outCh.Close()
 
 			// We resend the response here so that other running goroutines
 			// that hav a working outCh can pick up this response.
 			s.responses <- response
+			return
 		}
 	}
 }
@@ -383,37 +377,4 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 // you should instead wait for ListenAndServe to exit.
 func (s *Server) Stop() {
 	close(s.stopChan)
-}
-
-func createConnections(url string, config amqp.Config) (*amqp.Connection, *amqp.Connection, error) {
-	var (
-		conn1 *amqp.Connection
-		conn2 *amqp.Connection
-		err   error
-	)
-	conn1, err = amqp.DialConfig(url, config)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	conn2, err = amqp.DialConfig(url, config)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return conn1, conn2, nil
-}
-
-func createChannels(inputConn, outputConn *amqp.Connection) (*amqp.Channel, *amqp.Channel, error) {
-	inputCh, err := inputConn.Channel()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	outputCh, err := outputConn.Channel()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return inputCh, outputCh, nil
 }

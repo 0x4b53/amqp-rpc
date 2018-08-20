@@ -201,18 +201,17 @@ func (c *Client) runForever(url string) {
 func (c *Client) runOnce(url string) error {
 	logger.Info("client: starting up")
 
-	conn, err := amqp.DialConfig(url, c.dialconfig)
+	inputConn, outputConn, err := createConnections(c.url, c.dialconfig)
 	if err != nil {
 		return err
 	}
+	defer inputConn.Close()
+	defer outputConn.Close()
 
-	defer conn.Close()
-
-	inputCh, outputCh, err := c.declareChannels(conn)
+	inputCh, outputCh, err := createChannels(inputConn, outputConn)
 	if err != nil {
 		return err
 	}
-
 	defer inputCh.Close()
 	defer outputCh.Close()
 
@@ -223,8 +222,13 @@ func (c *Client) runOnce(url string) error {
 
 	go c.runPublisher(outputCh)
 
-	amqpChannel := conn.NotifyClose(make(chan *amqp.Error))
-	err = monitorChannels(c.stopChan, []chan *amqp.Error{amqpChannel})
+	err = monitorAndWait(
+		c.stopChan,
+		inputConn.NotifyClose(make(chan *amqp.Error)),
+		outputConn.NotifyClose(make(chan *amqp.Error)),
+		inputCh.NotifyClose(make(chan *amqp.Error)),
+		outputCh.NotifyClose(make(chan *amqp.Error)),
+	)
 
 	// If the user calls Stop() but then starts to use the client again we must
 	// ensure that a new connection will be setup. We do this by creating a new
@@ -232,21 +236,6 @@ func (c *Client) runOnce(url string) error {
 	c.once = sync.Once{}
 
 	return err
-}
-
-// Declare input- and output channels to use when publishing and consuming data.
-func (c *Client) declareChannels(conn *amqp.Connection) (*amqp.Channel, *amqp.Channel, error) {
-	inputCh, err := conn.Channel()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	outputCh, err := conn.Channel()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return inputCh, outputCh, nil
 }
 
 // runPublisher consumes messages from chan requests and publishes them on the
@@ -291,15 +280,16 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 					// The message that we tried to publish is NOT added back
 					// to the queue since it never left the client. The sender
 					// will get an error back and should handle this manually!
-					logger.Warn("client: could not publish message, giving up")
+					logger.Warnf("client: could not publish message, giving up: %s", err.Error())
 					request.errChan <- err
 				} else {
-					logger.Warn("client: could not publish message, retrying")
+					logger.Warnf("client: could not publish message, retrying: %s", err.Error())
 
 					request.numRetries++
 					c.requests <- request
 				}
 
+				outChan.Close()
 				logger.Info("client: publisher stopped because of error")
 				return
 			}

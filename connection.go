@@ -56,27 +56,67 @@ type PublishSettings struct {
 	Immediate bool
 }
 
-func monitorChannels(stopChan chan struct{}, connectionChannels []chan *amqp.Error) error {
+func monitorAndWait(stopChan chan struct{}, amqpErrs ...chan *amqp.Error) error {
 	result := make(chan error)
+	done := make(chan struct{})
+	defer close(done)
 
-	// Setup monitoring for connection channels, can be several connections.
+	// Setup monitoring for connections and channels, can be several connections and several channels.
 	// The first one closed will yield the error.
-	for _, c := range connectionChannels {
+	for _, errCh := range amqpErrs {
 		go func(c chan *amqp.Error) {
-			err, ok := <-c
-			if !ok {
-				result <- ErrUnexpectedConnClosed
-			}
+			select {
+			case err, ok := <-c:
+				if !ok {
+					result <- ErrUnexpectedConnClosed
+				}
+				result <- err
+				return
 
-			result <- err
-		}(c)
+			// Ensure the goroutine is exited when monitorAndWait returns.
+			case <-done:
+				return
+			}
+		}(errCh)
 	}
 
-	// Setup monitoring for application channel
-	go func() {
-		<-stopChan
-		result <- nil
-	}()
+	select {
+	case err := <-result:
+		return err
+	case <-stopChan:
+		return nil
+	}
+}
 
-	return <-result
+func createConnections(url string, config amqp.Config) (*amqp.Connection, *amqp.Connection, error) {
+	var (
+		conn1 *amqp.Connection
+		conn2 *amqp.Connection
+		err   error
+	)
+	conn1, err = amqp.DialConfig(url, config)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	conn2, err = amqp.DialConfig(url, config)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return conn1, conn2, nil
+}
+
+func createChannels(inputConn, outputConn *amqp.Connection) (*amqp.Channel, *amqp.Channel, error) {
+	inputCh, err := inputConn.Channel()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	outputCh, err := outputConn.Channel()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return inputCh, outputCh, nil
 }
