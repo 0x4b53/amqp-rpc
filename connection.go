@@ -57,26 +57,18 @@ type PublishSettings struct {
 }
 
 func monitorAndWait(stopChan chan struct{}, amqpErrs ...chan *amqp.Error) error {
-	result := make(chan error)
-	done := make(chan struct{})
-	defer close(done)
+	result := make(chan error, len(amqpErrs))
 
 	// Setup monitoring for connections and channels, can be several connections and several channels.
 	// The first one closed will yield the error.
 	for _, errCh := range amqpErrs {
 		go func(c chan *amqp.Error) {
-			select {
-			case err, ok := <-c:
-				if !ok {
-					result <- ErrUnexpectedConnClosed
-				}
-				result <- err
-				return
-
-			// Ensure the goroutine is exited when monitorAndWait returns.
-			case <-done:
+			err, ok := <-c
+			if !ok {
+				result <- ErrUnexpectedConnClosed
 				return
 			}
+			result <- err
 		}(errCh)
 	}
 

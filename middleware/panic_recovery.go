@@ -3,9 +3,9 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"log"
 
 	amqprpc "github.com/bombsimon/amqp-rpc"
-	"github.com/bombsimon/amqp-rpc/logger"
 	"github.com/streadway/amqp"
 )
 
@@ -22,7 +22,7 @@ func PanicRecovery(next amqprpc.HandlerFunc) amqprpc.HandlerFunc {
 			if r := recover(); r != nil {
 				var crashMessage string
 
-				logger.Warnf("handler caused a panic: %s", r)
+				log.Printf("handler caused a panic: %s", r)
 
 				switch v := r.(type) {
 				case error:
