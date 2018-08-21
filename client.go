@@ -1,10 +1,10 @@
 package amqprpc
 
 import (
+	"log"
 	"sync"
 	"time"
 
-	"github.com/bombsimon/amqp-rpc/logger"
 	uuid "github.com/satori/go.uuid"
 	"github.com/streadway/amqp"
 )
@@ -74,6 +74,15 @@ type Client struct {
 	// will be created to ensure the function connection and starting the
 	// publisher will be called.
 	once sync.Once
+
+	// errorLog specifies an optional logger for amqp errors, unexpected behaviour etc.
+	// If nil, logging is done via the log package's standard logger.
+	errorLog LogFunc
+
+	// debugLog specifies an optional logger for debugging, this logger will
+	// print most of what is happening internally.
+	// If nil, logging is not done.
+	debugLog LogFunc
 }
 
 // NewClient will return a pointer to a new Client. There are two ways to manage the
@@ -99,6 +108,8 @@ func NewClient(url string) *Client {
 		middlewares:        []ClientMiddlewareFunc{},
 		timeout:            time.Second * 10,
 		once:               sync.Once{},
+		errorLog:           log.Printf,                                  // use the standard logger default.
+		debugLog:           func(format string, args ...interface{}) {}, // don't print anything default.
 	}
 
 	// Set default values to use when crearing channels and consumers.
@@ -118,6 +129,18 @@ func (c *Client) WithDialConfig(dc amqp.Config) *Client {
 func (c *Client) WithTLS(cert Certificates) *Client {
 	c.dialconfig.TLSClientConfig = cert.TLSConfig()
 
+	return c
+}
+
+// WithErrorLogger sets the logger to use for error logging.
+func (c *Client) WithErrorLogger(f LogFunc) *Client {
+	c.errorLog = f
+	return c
+}
+
+// WithDebugLogger sets the logger to use for debug logging.
+func (c *Client) WithDebugLogger(f LogFunc) *Client {
+	c.debugLog = f
 	return c
 }
 
@@ -153,9 +176,9 @@ func (c *Client) AddMiddleware(m ClientMiddlewareFunc) *Client {
 
 func (c *Client) setDefaults() {
 	c.queueDeclareSettings = QueueDeclareSettings{
-		Durable:          false,
+		Durable:          true,
 		DeleteWhenUnused: true,
-		Exclusive:        true,
+		Exclusive:        false,
 		NoWait:           false,
 		Args:             nil,
 	}
@@ -163,7 +186,7 @@ func (c *Client) setDefaults() {
 	c.consumeSettings = ConsumeSettings{
 		Consumer:  "",
 		AutoAck:   true,
-		Exclusive: false,
+		Exclusive: true,
 		NoLocal:   false,
 		NoWait:    false,
 		Args:      nil,
@@ -181,15 +204,15 @@ func (c *Client) setDefaults() {
 // This will also block until the client is gracefully stopped.
 func (c *Client) runForever(url string) {
 	for {
-		logger.Info("client: connecting...")
+		c.debugLog("client: connecting...")
 
 		err := c.runOnce(url)
 		if err == nil {
-			logger.Info("client: finished gracefully")
+			c.debugLog("client: finished gracefully")
 			break
 		}
 
-		logger.Warnf("client: got error: %s, will reconnect in %v second(s)", err, 0.5)
+		c.errorLog("client: got error: %s, will reconnect in %v second(s)", err, 0.5)
 		time.Sleep(500 * time.Millisecond)
 	}
 }
@@ -199,7 +222,7 @@ func (c *Client) runForever(url string) {
 // amqp error if the underlying connection or socket isn't gracefully closed.
 // It will also block until the connection is gone.
 func (c *Client) runOnce(url string) error {
-	logger.Info("client: starting up")
+	c.debugLog("client: starting up")
 
 	inputConn, outputConn, err := createConnections(c.url, c.dialconfig)
 	if err != nil {
@@ -229,13 +252,15 @@ func (c *Client) runOnce(url string) error {
 		inputCh.NotifyClose(make(chan *amqp.Error)),
 		outputCh.NotifyClose(make(chan *amqp.Error)),
 	)
+	if err != nil {
+		return err
+	}
 
 	// If the user calls Stop() but then starts to use the client again we must
 	// ensure that a new connection will be setup. We do this by creating a new
 	// sync.Once so the method runForever will be called again.
 	c.once = sync.Once{}
-
-	return err
+	return nil
 }
 
 // runPublisher consumes messages from chan requests and publishes them on the
@@ -243,12 +268,12 @@ func (c *Client) runOnce(url string) error {
 // is closed for any reason, and when this happens the messages will be put back
 // in chan requests unless we have retried to many times.
 func (c *Client) runPublisher(outChan *amqp.Channel) {
-	logger.Info("client: running publisher")
+	c.debugLog("client: running publisher")
 
 	for {
 		select {
 		case <-c.stopChan:
-			logger.Info("client: publisher stopped after stop chan was closed")
+			c.debugLog("client: publisher stopped after stop chan was closed")
 			return
 
 		case request, _ := <-c.requests:
@@ -259,7 +284,7 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 				replyToQueueName = c.replyToQueueName
 			}
 
-			logger.Infof("client: publishing %v", request.correlationID)
+			c.debugLog("client: publishing %v", request.correlationID)
 
 			err := outChan.Publish(
 				request.Exchange,
@@ -276,21 +301,23 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 			)
 
 			if err != nil {
+				// Close the outChan to ensure reconnect.
+				outChan.Close()
+
 				if request.numRetries > 0 {
 					// The message that we tried to publish is NOT added back
 					// to the queue since it never left the client. The sender
 					// will get an error back and should handle this manually!
-					logger.Warnf("client: could not publish message, giving up: %s", err.Error())
+					c.errorLog("client: could not publish message, giving up: %s", err.Error())
 					request.errChan <- err
 				} else {
-					logger.Warnf("client: could not publish message, retrying: %s", err.Error())
+					c.errorLog("client: could not publish message, retrying: %s", err.Error())
 
 					request.numRetries++
 					c.requests <- request
 				}
 
-				outChan.Close()
-				logger.Info("client: publisher stopped because of error")
+				c.debugLog("client: publisher stopped because of error")
 				return
 			}
 
@@ -300,7 +327,7 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 				request.response <- nil
 			}
 
-			logger.Info("client: did publish message")
+			c.debugLog("client: did publish message")
 		}
 	}
 }
@@ -337,23 +364,23 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 	}
 
 	go func() {
-		logger.Info("client: waiting for replies")
+		c.debugLog("client: waiting for replies")
 		for response := range messages {
 			c.mu.RLock()
 			replyChan, ok := c.correlationMapping[response.CorrelationId]
 			c.mu.RUnlock()
 
 			if !ok {
-				logger.Warnf("client: could not find where to reply. CorrelationId: %v", response.CorrelationId)
+				c.errorLog("client: could not find where to reply. CorrelationId: %v", response.CorrelationId)
 				continue
 			}
 
-			logger.Infof("client: forwarding reply %v", response.CorrelationId)
+			c.debugLog("client: forwarding reply %v", response.CorrelationId)
 
 			replyChan <- &response
 		}
 
-		logger.Info("client: done waiting for replies")
+		c.debugLog("client: done waiting for replies")
 	}()
 
 	return nil
@@ -421,7 +448,7 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	case <-time.After(timeout):
 		return nil, ErrTimeout
 	case delivery := <-r.response:
-		logger.Info("client: got delivery")
+		c.debugLog("client: got delivery")
 		return delivery, nil
 	}
 }

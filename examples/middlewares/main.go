@@ -12,11 +12,8 @@ each request.
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
-	"log"
 
 	amqprpc "github.com/bombsimon/amqp-rpc"
-	"github.com/bombsimon/amqp-rpc/logger"
 	uuid "github.com/satori/go.uuid"
 	"github.com/streadway/amqp"
 )
@@ -28,10 +25,6 @@ var (
 
 func main() {
 	go startServer()
-
-	l := log.New(ioutil.Discard, "", 0)
-	logger.SetInfoLogger(l)
-	logger.SetWarnLogger(l)
 
 	c := amqprpc.NewClient(url).AddMiddleware(handlePassword)
 	r := amqprpc.NewRequest("exchanger")

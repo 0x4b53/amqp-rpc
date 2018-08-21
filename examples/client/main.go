@@ -3,22 +3,17 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"io/ioutil"
+	"log"
 	"os"
 	"time"
 
-	"log"
-
 	amqprpc "github.com/bombsimon/amqp-rpc"
-	"github.com/bombsimon/amqp-rpc/logger"
 )
 
 func main() {
-	l := log.New(ioutil.Discard, "", 0)
-	logger.SetInfoLogger(l)
-	logger.SetWarnLogger(l)
-
 	c := amqprpc.NewClient("amqp://guest:guest@localhost:5672/")
+	c.WithErrorLogger(log.New(os.Stdout, "ERROR - ", log.LstdFlags).Printf)
+
 	reader := bufio.NewReader(os.Stdin)
 
 	go heartbeat(c)
@@ -27,6 +22,7 @@ func main() {
 		fmt.Print("Enter text: ")
 		text, _ := reader.ReadString('\n')
 		request := amqprpc.NewRequest("upper").WithStringBody(text)
+
 		response, err := c.Send(request)
 		if err != nil {
 			fmt.Println("Woops: ", err)
@@ -39,7 +35,9 @@ func main() {
 func heartbeat(c *amqprpc.Client) {
 	for {
 		_, err := c.Send(
-			amqprpc.NewRequest("beat").WithStringBody(time.Now().String()),
+			amqprpc.NewRequest("beat").
+				WithStringBody(time.Now().String()).
+				WithTimeout(100 * time.Millisecond),
 		)
 		if err != nil {
 			fmt.Println("Heartbeat error: ", err)

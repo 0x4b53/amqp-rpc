@@ -2,13 +2,10 @@ package benchmarks
 
 import (
 	"context"
-	"io/ioutil"
-	"log"
 	"testing"
 	"time"
 
 	amqprpc "github.com/bombsimon/amqp-rpc"
-	"github.com/bombsimon/amqp-rpc/logger"
 	uuid "github.com/satori/go.uuid"
 	"github.com/streadway/amqp"
 )
@@ -17,10 +14,6 @@ var url = "amqp://guest:guest@localhost:5672/"
 var result *amqp.Delivery
 
 func Benchmark(b *testing.B) {
-	l := log.New(ioutil.Discard, "", 0)
-	logger.SetInfoLogger(l)
-	logger.SetWarnLogger(l)
-
 	s := amqprpc.NewServer(url)
 	queueName := uuid.Must(uuid.NewV4()).String()
 	s.Bind(amqprpc.DirectBinding(queueName, func(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {}))

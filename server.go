@@ -2,13 +2,12 @@ package amqprpc
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
 	uuid "github.com/satori/go.uuid"
 	"github.com/streadway/amqp"
-
-	"github.com/bombsimon/amqp-rpc/logger"
 )
 
 type ctxKey string
@@ -72,6 +71,15 @@ type Server struct {
 	// stopChan channel is used to signal shutdowns when calling Stop(). The
 	// channel will be closed when Stop() is called.
 	stopChan chan struct{}
+
+	// errorLog specifies an optional logger for amqp errors, unexpected behaviour etc.
+	// If nil, logging is done via the log package's standard logger.
+	errorLog LogFunc
+
+	// debugLog specifies an optional logger for debugging, this logger will
+	// print most of what is happening internally.
+	// If nil, logging is not done.
+	debugLog LogFunc
 }
 
 // NewServer will return a pointer to a new Server.
@@ -86,6 +94,8 @@ func NewServer(url string) *Server {
 		exchangeDelcareSettings: ExchangeDeclareSettings{Durable: true},
 		queueDeclareSettings:    QueueDeclareSettings{},
 		consumeSettings:         ConsumeSettings{},
+		errorLog:                log.Printf,                                  // use the standard logger default.
+		debugLog:                func(format string, args ...interface{}) {}, // don't print anything default.
 	}
 
 	return &server
@@ -95,6 +105,18 @@ func NewServer(url string) *Server {
 func (s *Server) WithDialConfig(c amqp.Config) *Server {
 	s.dialconfig = c
 
+	return s
+}
+
+// WithErrorLogger sets the logger to use for error logging.
+func (s *Server) WithErrorLogger(f LogFunc) *Server {
+	s.errorLog = f
+	return s
+}
+
+// WithDebugLogger sets the logger to use for debug logging.
+func (s *Server) WithDebugLogger(f LogFunc) *Server {
+	s.debugLog = f
 	return s
 }
 
@@ -121,18 +143,18 @@ func (s *Server) ListenAndServe() {
 	for {
 		err := s.listenAndServe()
 		if err != nil {
-			logger.Warnf("server: got error: %s, will reconnect in %v second(s)", err, 0.5)
+			s.errorLog("server: got error: %s, will reconnect in %v second(s)", err, 0.5)
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
 
-		logger.Info("server: listener exiting gracefully")
+		s.debugLog("server: listener exiting gracefully")
 		break
 	}
 }
 
 func (s *Server) listenAndServe() error {
-	logger.Infof("server: staring listener: %s", s.url)
+	s.debugLog("server: staring listener: %s", s.url)
 
 	// We are using two different connections here because:
 	// "It's advisable to use separate connections for Channel.Publish and
@@ -177,6 +199,8 @@ func (s *Server) listenAndServe() error {
 	if err != nil {
 		return err
 	}
+
+	s.debugLog("server: gracefully shutting down")
 
 	// 1. Tell amqp we want to shut down by cancelling all the consumers.
 	for _, consumerTag := range consumerTags {
@@ -248,7 +272,7 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 	wg.Add(1)
 	defer wg.Done()
 
-	logger.Infof("server: waiting for messages on queue '%s'", queueName)
+	s.debugLog("server: waiting for messages on queue '%s'", queueName)
 
 	for delivery := range deliveries {
 		// Add one delta to the wait group each time a delivery is handled so
@@ -257,7 +281,7 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 		// delivery is finished even though we handle them concurrently.
 		wg.Add(1)
 
-		logger.Infof("server: got delivery on queue %v correlation id %v", queueName, delivery.CorrelationId)
+		s.debugLog("server: got delivery on queue %v correlation id %v", queueName, delivery.CorrelationId)
 
 		rw := ResponseWriter{
 			publishing: &amqp.Publishing{
@@ -297,7 +321,7 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 		}(delivery)
 	}
 
-	logger.Infof("server: stopped waiting for messages on queue '%s'", queueName)
+	s.debugLog("server: stopped waiting for messages on queue '%s'", queueName)
 }
 
 func (s *Server) declareAndBind(inputCh *amqp.Channel, binding HandlerBinding) (string, error) {
@@ -352,6 +376,11 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for response := range s.responses {
+		s.debugLog(
+			"server: publishing response to %s, correlation id: %s",
+			response.replyTo, response.publishing.CorrelationId,
+		)
+
 		err := outCh.Publish(
 			"", // exchange
 			response.replyTo,
@@ -361,11 +390,15 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 		)
 
 		if err != nil {
-			logger.Warnf("server: could not publish response: %s", err.Error())
+			// Close the channel so ensure reconnect.
 			outCh.Close()
 
 			// We resend the response here so that other running goroutines
-			// that hav a working outCh can pick up this response.
+			// that have a working outCh can pick up this response.
+			s.errorLog(
+				"server: retrying publishing response to %s, correlation id: %s, reason: %s",
+				response.replyTo, response.publishing.CorrelationId, err.Error(),
+			)
 			s.responses <- response
 			return
 		}

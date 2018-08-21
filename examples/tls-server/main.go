@@ -7,18 +7,14 @@ import (
 	"os"
 
 	amqprpc "github.com/bombsimon/amqp-rpc"
-	"github.com/bombsimon/amqp-rpc/logger"
 
 	"github.com/streadway/amqp"
 )
 
 var url = "amqps://guest:guest@localhost:5672/"
+var logger = log.New(os.Stdout, "[amqp-rpc]", log.LstdFlags)
 
 func main() {
-	customLogger := log.New(os.Stdout, "[amqp-rpc]", log.LstdFlags)
-	logger.SetInfoLogger(customLogger)
-	logger.SetWarnLogger(customLogger)
-
 	cert := amqprpc.Certificates{
 		Cert: "server.crt",
 		Key:  "server.key",
@@ -27,6 +23,7 @@ func main() {
 	s := amqprpc.NewServer(url).WithDialConfig(amqp.Config{
 		TLSClientConfig: cert.TLSConfig(),
 	})
+	s.WithErrorLogger(logger.Printf)
 
 	s.Bind(amqprpc.DirectBinding("hello_world", handleHelloWorld))
 	s.Bind(amqprpc.DirectBinding("client_usage", handleClientUsage))
@@ -35,13 +32,13 @@ func main() {
 }
 
 func handleHelloWorld(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
-	logger.Infof("Handling 'Hello world' request")
+	logger.Printf("Handling 'Hello world' request")
 
 	fmt.Fprintf(rw, "Got message: %s", d.Body)
 }
 
 func handleClientUsage(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
-	logger.Infof("Handling 'Client usage' request")
+	logger.Printf("Handling 'Client usage' request")
 
 	cert := amqprpc.Certificates{
 		Cert: "client/cert.pem",
@@ -54,7 +51,7 @@ func handleClientUsage(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.D
 	request := amqprpc.NewRequest("hello_world").WithStringBody("Sent with client")
 	response, err := c.Send(request)
 	if err != nil {
-		logger.Warnf("Something went wrong: %s", err)
+		logger.Printf("Something went wrong: %s", err)
 		fmt.Fprint(rw, err.Error())
 	}
 
