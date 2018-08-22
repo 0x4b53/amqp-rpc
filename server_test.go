@@ -30,7 +30,7 @@ func TestSendWithReply(t *testing.T) {
 	defer stop()
 
 	c := NewClient(serverTestURL)
-	request := NewRequest("myqueue").WithStringBody("this is a message")
+	request := NewRequest("myqueue").WithBody("this is a message")
 	reply, err := c.Send(request)
 
 	Equal(t, err, nil)
@@ -107,7 +107,7 @@ func TestServerReconnect(t *testing.T) {
 	c := NewClient(serverTestURL)
 
 	for i := 0; i < 2; i++ {
-		message := []byte(fmt.Sprintf("this is message %v", i))
+		message := fmt.Sprintf("this is message %v", i)
 		request := NewRequest("myqueue").WithBody(message)
 		reply, err := c.Send(request)
 		Equal(t, err, nil)

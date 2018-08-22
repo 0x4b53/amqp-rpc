@@ -34,7 +34,7 @@ func main() {
 	c := amqprpc.NewClient("amqp://guest:guest@localhost:5672/")
 	r := amqprpc.NewRequest("").
 		WithExchange("cool-exchange").
-		WithStringBody("Seding fanout").
+		WithBody("Seding fanout").
 		WithResponse(false)
 
 	_, err := c.Send(r)

@@ -92,7 +92,7 @@ func TestTopic(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.request, func(t *testing.T) {
-			_, err := c.Send(NewRequest(tc.request).WithStringBody(tc.request).WithExchange("amq.topic").WithResponse(false))
+			_, err := c.Send(NewRequest(tc.request).WithBody(tc.request).WithExchange("amq.topic").WithResponse(false))
 			Equal(t, err, nil)
 
 			for key, expectCalled := range tc.called {

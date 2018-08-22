@@ -25,7 +25,7 @@ func TestClient(t *testing.T) {
 	client := NewClient("amqp://guest:guest@localhost:5672/")
 	NotEqual(t, client, nil)
 
-	request := NewRequest("myqueue").WithStringBody("client testing")
+	request := NewRequest("myqueue").WithBody("client testing")
 	response, err := client.Send(request)
 	Equal(t, err, nil)
 	Equal(t, response.Body, []byte("Got message: client testing"))
@@ -63,13 +63,13 @@ func TestReconnect(t *testing.T) {
 	conn, _ := <-connections
 	conn.Close()
 
-	_, err = client.Send(NewRequest("myqueue").WithStringBody("client testing"))
+	_, err = client.Send(NewRequest("myqueue").WithBody("client testing"))
 	NotEqual(t, err, nil)
 
 	// Ensure we're reconnected
 	time.Sleep(100 * time.Millisecond)
 
-	_, err = client.Send(NewRequest("myqueue").WithStringBody("client testing").WithResponse(false))
+	_, err = client.Send(NewRequest("myqueue").WithBody("client testing").WithResponse(false))
 	Equal(t, err != nil, false)
 }
 
@@ -88,18 +88,18 @@ func TestTimeout(t *testing.T) {
 	}{
 		// Client with timeout but no timeout on the Request.
 		{
-			client:  NewClient(clientTestURL).WithTimeout(1 * time.Microsecond),
+			client:  NewClient(clientTestURL).WithTimeout(1 * time.Millisecond),
 			request: NewRequest("myqueue"),
 		},
 		// Request with timeout but no timeout on the Client.
 		{
 			client:  NewClient(clientTestURL),
-			request: NewRequest("myqueue").WithTimeout(1 * time.Microsecond),
+			request: NewRequest("myqueue").WithTimeout(1 * time.Millisecond),
 		},
 		// Request timeout overrides the Client timeout.
 		{
 			client:  NewClient(clientTestURL).WithTimeout(10 * time.Second),
-			request: NewRequest("myqueue").WithTimeout(1 * time.Microsecond),
+			request: NewRequest("myqueue").WithTimeout(1 * time.Millisecond),
 		},
 	}
 

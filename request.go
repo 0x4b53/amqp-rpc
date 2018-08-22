@@ -1,6 +1,7 @@
 package amqprpc
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/streadway/amqp"
@@ -12,17 +13,6 @@ type Request struct {
 	// passing it to the clients send function.
 	Exchange string
 
-	// Headers is the headers for the request. The headers is passed straight to
-	// the amqp.Publishing type and is of the same type (amqp.Table)
-	Headers amqp.Table
-
-	// Body is the byte slice that will be sent as the body for the request.
-	Body []byte
-
-	// ContentType is the content type of the rquest data. This defaults to
-	// text/plain but should be set appropriate to the content.
-	ContentType string
-
 	// Routing key is the routing key that will be used in the amqp.Publishing
 	// request.
 	RoutingKey string
@@ -31,9 +21,9 @@ type Request struct {
 	// or just send the request without waiting.
 	Reply bool
 
-	// Timeout is the time we should wait after a request is sent before
+	// timeout is the time we should wait after a request is sent before
 	// we assume the request got lost.
-	Timeout time.Duration
+	timeout time.Duration
 
 	// middlewares holds slice of middlewares to run before or after the client
 	// sends a request. This is only executed for the specific request.
@@ -44,24 +34,39 @@ type Request struct {
 	response chan *amqp.Delivery
 	errChan  chan error // If we get a client error (e.g we can't publish) it will end up here.
 
-	correlationID string
-
 	// the number of times that the publisher should retry.
 	numRetries int
+
+	// publishing is the publising that are going to be sent.
+	publishing amqp.Publishing
 }
 
 // NewRequest will generate a new request to be published. The default request
 // will use the content type "text/plain" and always wait for reply.
 func NewRequest(rk string) *Request {
 	r := Request{
-		ContentType: "text/plain",
 		RoutingKey:  rk,
-		Headers:     amqp.Table{},
 		Reply:       true,
 		middlewares: []ClientMiddlewareFunc{},
+		publishing: amqp.Publishing{
+			ContentType: "text/plain",
+			Headers:     amqp.Table{},
+		},
 	}
 
 	return &r
+}
+
+// Write will write the response Body of the amqp.Publishing.
+// It is safe to call Write multiple times.
+func (r *Request) Write(p []byte) (int, error) {
+	r.publishing.Body = append(r.publishing.Body, p...)
+	return len(p), nil
+}
+
+// WriteHeader will write a header for the specified key.
+func (r *Request) WriteHeader(header string, value interface{}) {
+	r.publishing.Headers[header] = value
 }
 
 // WithExchange will set the exchange on to which the request will be published.
@@ -72,15 +77,17 @@ func (r *Request) WithExchange(e string) *Request {
 }
 
 // WithHeaders will set the full amqp.Table as the headers for the request.
+// Note that this will overwrite anything previously set on the headers.
 func (r *Request) WithHeaders(h amqp.Table) *Request {
-	r.Headers = h
-
+	r.publishing.Headers = h
 	return r
 }
 
 // WithTimeout will set the client timeout used when publishing messages.
+// t will be rounded using the duration's Round function to the nearest
+// multiple of a millisecond. Rounding will be away from zero.
 func (r *Request) WithTimeout(t time.Duration) *Request {
-	r.Timeout = t
+	r.timeout = t.Round(time.Millisecond)
 	return r
 }
 
@@ -97,22 +104,14 @@ func (r *Request) WithResponse(wr bool) *Request {
 // request. This value will bee set as the ContentType in the amqp.Publishing
 // type but also preserved as a header value.
 func (r *Request) WithContentType(ct string) *Request {
-	r.ContentType = ct
-
-	return r
-}
-
-// WithBody sets the body used for the request.
-func (r *Request) WithBody(b []byte) *Request {
-	r.Body = b
-
+	r.publishing.ContentType = ct
 	return r
 }
 
 // WithStringBody will convert a string to a byte slice and add as the body
 // passed for the request.
-func (r *Request) WithStringBody(b string) *Request {
-	r.Body = []byte(b)
+func (r *Request) WithBody(b string) *Request {
+	r.publishing.Body = []byte(b)
 
 	return r
 }
@@ -123,4 +122,13 @@ func (r *Request) AddMiddleware(m ClientMiddlewareFunc) *Request {
 	r.middlewares = append(r.middlewares, m)
 
 	return r
+}
+
+func (r *Request) Publishing() *amqp.Publishing {
+	return &r.publishing
+}
+
+func (r *Request) startTimeout() <-chan time.Time {
+	r.publishing.Expiration = fmt.Sprintf("%d", r.timeout.Nanoseconds()/1e6)
+	return time.After(r.timeout)
 }
