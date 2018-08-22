@@ -33,7 +33,7 @@ func TestClientLogging(t *testing.T) {
 	c.WithDebugLogger(logger.Printf)
 	c.WithErrorLogger(logger.Printf)
 
-	c.Send(NewRequest("foobar").WithTimeout(time.Microsecond))
+	c.Send(NewRequest("foobar").WithTimeout(time.Millisecond))
 
 	NotEqual(t, buf.String(), "")
 	MatchRegex(t, buf.String(), "^TEST")

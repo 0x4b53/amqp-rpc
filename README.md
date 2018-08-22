@@ -133,7 +133,7 @@ means that the server is non blocking and can handle multiple requests at once.
 ```go
 c := NewClient("amqp://guest:guest@localhost:5672")
 
-request := NewRequest("my_endpoint").WithStringBody("My body").WithResponse(true)
+request := NewRequest("my_endpoint").WithBody("My body").WithResponse(true)
 response, err := c.Send(request)
 if err != nil {
     logger.Warn("Something went wrong", err)

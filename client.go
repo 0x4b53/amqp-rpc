@@ -161,9 +161,10 @@ func (c *Client) WithConsumeSettings(s ConsumeSettings) *Client {
 }
 
 // WithTimeout will set the client timeout used when publishing messages.
+// t will be rounded using the duration's Round function to the nearest
+// multiple of a millisecond. Rounding will be away from zero.
 func (c *Client) WithTimeout(t time.Duration) *Client {
-	c.timeout = t
-
+	c.timeout = t.Round(time.Millisecond)
 	return c
 }
 
@@ -222,7 +223,7 @@ func (c *Client) runForever(url string) {
 // amqp error if the underlying connection or socket isn't gracefully closed.
 // It will also block until the connection is gone.
 func (c *Client) runOnce(url string) error {
-	c.debugLog("client: starting up")
+	c.debugLog("client: starting up...")
 
 	inputConn, outputConn, err := createConnections(c.url, c.dialconfig)
 	if err != nil {
@@ -268,7 +269,7 @@ func (c *Client) runOnce(url string) error {
 // is closed for any reason, and when this happens the messages will be put back
 // in chan requests unless we have retried to many times.
 func (c *Client) runPublisher(outChan *amqp.Channel) {
-	c.debugLog("client: running publisher")
+	c.debugLog("client: running publisher...")
 
 	for {
 		select {
@@ -284,20 +285,16 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 				replyToQueueName = c.replyToQueueName
 			}
 
-			c.debugLog("client: publishing %v", request.correlationID)
+			c.debugLog("client: publishing %s", request.publishing.CorrelationId)
+
+			request.publishing.ReplyTo = replyToQueueName
 
 			err := outChan.Publish(
 				request.Exchange,
 				request.RoutingKey,
 				c.publishSettings.Mandatory,
 				c.publishSettings.Immediate,
-				amqp.Publishing{
-					Headers:       request.Headers,
-					ContentType:   request.ContentType,
-					ReplyTo:       replyToQueueName,
-					Body:          request.Body,
-					CorrelationId: request.correlationID,
-				},
+				request.publishing,
 			)
 
 			if err != nil {
@@ -308,16 +305,22 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 					// The message that we tried to publish is NOT added back
 					// to the queue since it never left the client. The sender
 					// will get an error back and should handle this manually!
-					c.errorLog("client: could not publish message, giving up: %s", err.Error())
+					c.errorLog(
+						"client: could not publish %s, giving up: %s",
+						request.publishing.CorrelationId, err.Error(),
+					)
 					request.errChan <- err
 				} else {
-					c.errorLog("client: could not publish message, retrying: %s", err.Error())
+					c.errorLog(
+						"client: could not publish %s, retrying: %s",
+						request.publishing.CorrelationId, err.Error(),
+					)
 
 					request.numRetries++
 					c.requests <- request
 				}
 
-				c.debugLog("client: publisher stopped because of error")
+				c.errorLog("client: publisher stopped because of error, %s", request.publishing.CorrelationId)
 				return
 			}
 
@@ -327,7 +330,7 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 				request.response <- nil
 			}
 
-			c.debugLog("client: did publish message")
+			c.debugLog("client: did publish %s", request.publishing.CorrelationId)
 		}
 	}
 }
@@ -364,23 +367,24 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 	}
 
 	go func() {
-		c.debugLog("client: waiting for replies")
+		c.debugLog("client: running replies consumer...")
+
 		for response := range messages {
 			c.mu.RLock()
 			replyChan, ok := c.correlationMapping[response.CorrelationId]
 			c.mu.RUnlock()
 
 			if !ok {
-				c.errorLog("client: could not find where to reply. CorrelationId: %v", response.CorrelationId)
+				c.errorLog("client: could not find where to reply. CorrelationId: %s", response.CorrelationId)
 				continue
 			}
 
-			c.debugLog("client: forwarding reply %v", response.CorrelationId)
+			c.debugLog("client: forwarding reply %s", response.CorrelationId)
 
 			replyChan <- &response
 		}
 
-		c.debugLog("client: done waiting for replies")
+		c.debugLog("client: replies consumer is done")
 	}()
 
 	return nil
@@ -410,7 +414,10 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// this channel will get a nil message after publisher has Published the
 	// message.
 	r.response = make(chan *amqp.Delivery)
-	r.correlationID = uuid.Must(uuid.NewV4()).String()
+	correlationID := uuid.Must(uuid.NewV4()).String()
+
+	// Set the correlation id on the publishing.
+	r.publishing.CorrelationId = correlationID
 
 	// This is where we get any (client) errors if they occure before we could
 	// even send the request.
@@ -419,36 +426,39 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// Ensure the responseConsumer will know which chan to forward the response
 	// to when the response arrives.
 	c.mu.Lock()
-	c.correlationMapping[r.correlationID] = r.response
+	c.correlationMapping[correlationID] = r.response
 	c.mu.Unlock()
 
 	defer func() {
 		c.mu.Lock()
-		delete(c.correlationMapping, r.correlationID)
+		delete(c.correlationMapping, correlationID)
 		c.mu.Unlock()
 	}()
 
 	// If a request timeout is specified, use that one, otherwise use the
 	// clients global timeout settings.
-	var timeout time.Duration
-
-	if r.Timeout.Nanoseconds() != 0 {
-		timeout = r.Timeout
-	} else if c.timeout.Nanoseconds() != 0 {
-		timeout = c.timeout
+	if r.timeout.Nanoseconds() == 0 {
+		r.timeout = c.timeout
 	}
 
+	// start the timeout counting now.
+	timeoutChan := r.startTimeout()
+
+	c.debugLog("client: queuing request %s", correlationID)
 	c.requests <- r
+	c.debugLog("client: waiting for reply of %s", correlationID)
 
 	// All responses are published on the requests response channel. Hang here
 	// until a response is received and close the channel when it's read.
 	select {
 	case err := <-r.errChan:
+		c.debugLog("client: error for %s, %s", correlationID, err.Error())
 		return nil, err
-	case <-time.After(timeout):
+	case <-timeoutChan:
+		c.debugLog("client: timeout for %s", correlationID)
 		return nil, ErrTimeout
 	case delivery := <-r.response:
-		c.debugLog("client: got delivery")
+		c.debugLog("client: got delivery for %s", correlationID)
 		return delivery, nil
 	}
 }

@@ -44,7 +44,7 @@ func main() {
 		func(next amqprpc.SendFunc) amqprpc.SendFunc {
 			return func(r *amqprpc.Request) (*amqp.Delivery, error) {
 				fmt.Println(">> I'm being executed before Send(), but only for ONE request!")
-				r.Headers["password"] = "i am custom"
+				r.Publishing().Headers["password"] = "i am custom"
 
 				return next(r)
 			}
@@ -67,7 +67,7 @@ func handlePassword(next amqprpc.SendFunc) amqprpc.SendFunc {
 			password = uuid.Must(uuid.NewV4()).String()
 		}
 
-		r.Headers["password"] = password
+		r.Publishing().Headers["password"] = password
 
 		// This will always run the clients send function in the end.
 		d, e := next(r)

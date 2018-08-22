@@ -25,7 +25,7 @@ func TestRequest(t *testing.T) {
 	// Test simple form.
 	request := NewRequest("myqueue").
 		WithResponse(true).
-		WithStringBody("hello request")
+		WithBody("hello request")
 
 	response, err := client.Send(request)
 	Equal(t, err, nil)
@@ -37,14 +37,14 @@ func TestRequest(t *testing.T) {
 		WithHeaders(amqp.Table{}).
 		WithResponse(false).
 		WithContentType("application/json").
-		WithBody([]byte(`{"foo":"bar"}`))
+		WithBody(`{"foo":"bar"}`)
 
 	response, err = client.Send(request)
 	Equal(t, err, nil)
 	Equal(t, response, nil)
 
 	request = NewRequest("myqueue").
-		WithStringBody("original message").
+		WithBody("original message").
 		AddMiddleware(myMiddle)
 
 	response, err = client.Send(request)
@@ -53,9 +53,55 @@ func TestRequest(t *testing.T) {
 	Equal(t, response.Body, []byte("Got message: middleware message"))
 }
 
+func TestRequestWriting(t *testing.T) {
+	r := NewRequest("foo")
+	Equal(t, len(r.publishing.Body), 0)
+	Equal(t, len(r.publishing.Headers), 0)
+
+	t.Run("body writing", func(tt *testing.T) {
+		fmt.Fprintf(r, "my body is foo")
+		Equal(tt, r.publishing.Body, []byte("my body is foo"))
+
+		fmt.Fprintf(r, "\nand bar")
+		Equal(tt, r.publishing.Body, []byte("my body is foo\nand bar"))
+
+		r.WithBody("overwrite")
+		Equal(tt, r.publishing.Body, []byte("overwrite"))
+
+		fmt.Fprintf(r, "written")
+		Equal(tt, r.publishing.Body, []byte("overwritewritten"))
+	})
+
+	t.Run("header writing", func(tt *testing.T) {
+		r.WriteHeader("foo", "bar")
+		Equal(tt, r.publishing.Headers, amqp.Table{
+			"foo": "bar",
+		})
+
+		r.WriteHeader("baz", "baa")
+		Equal(tt, r.publishing.Headers, amqp.Table{
+			"foo": "bar",
+			"baz": "baa",
+		})
+
+		r.WithHeaders(amqp.Table{
+			"overwritten": "headers",
+		})
+		Equal(tt, r.publishing.Headers, amqp.Table{
+			"overwritten": "headers",
+		})
+
+		r.WriteHeader("baz", "foo")
+		Equal(tt, r.publishing.Headers, amqp.Table{
+			"overwritten": "headers",
+			"baz":         "foo",
+		})
+	})
+}
+
 func myMiddle(next SendFunc) SendFunc {
 	return func(r *Request) (*amqp.Delivery, error) {
-		r.Body = []byte("middleware message")
+		r.Publishing().Body = []byte("middleware message")
 
 		return next(r)
 	}
