@@ -55,31 +55,31 @@ func TestRequest(t *testing.T) {
 
 func TestRequestWriting(t *testing.T) {
 	r := NewRequest("foo")
-	Equal(t, len(r.publishing.Body), 0)
-	Equal(t, len(r.publishing.Headers), 0)
+	Equal(t, len(r.Publishing.Body), 0)
+	Equal(t, len(r.Publishing.Headers), 0)
 
 	t.Run("body writing", func(tt *testing.T) {
 		fmt.Fprintf(r, "my body is foo")
-		Equal(tt, r.publishing.Body, []byte("my body is foo"))
+		Equal(tt, r.Publishing.Body, []byte("my body is foo"))
 
 		fmt.Fprintf(r, "\nand bar")
-		Equal(tt, r.publishing.Body, []byte("my body is foo\nand bar"))
+		Equal(tt, r.Publishing.Body, []byte("my body is foo\nand bar"))
 
 		r.WithBody("overwrite")
-		Equal(tt, r.publishing.Body, []byte("overwrite"))
+		Equal(tt, r.Publishing.Body, []byte("overwrite"))
 
 		fmt.Fprintf(r, "written")
-		Equal(tt, r.publishing.Body, []byte("overwritewritten"))
+		Equal(tt, r.Publishing.Body, []byte("overwritewritten"))
 	})
 
 	t.Run("header writing", func(tt *testing.T) {
 		r.WriteHeader("foo", "bar")
-		Equal(tt, r.publishing.Headers, amqp.Table{
+		Equal(tt, r.Publishing.Headers, amqp.Table{
 			"foo": "bar",
 		})
 
 		r.WriteHeader("baz", "baa")
-		Equal(tt, r.publishing.Headers, amqp.Table{
+		Equal(tt, r.Publishing.Headers, amqp.Table{
 			"foo": "bar",
 			"baz": "baa",
 		})
@@ -87,12 +87,12 @@ func TestRequestWriting(t *testing.T) {
 		r.WithHeaders(amqp.Table{
 			"overwritten": "headers",
 		})
-		Equal(tt, r.publishing.Headers, amqp.Table{
+		Equal(tt, r.Publishing.Headers, amqp.Table{
 			"overwritten": "headers",
 		})
 
 		r.WriteHeader("baz", "foo")
-		Equal(tt, r.publishing.Headers, amqp.Table{
+		Equal(tt, r.Publishing.Headers, amqp.Table{
 			"overwritten": "headers",
 			"baz":         "foo",
 		})
@@ -101,7 +101,7 @@ func TestRequestWriting(t *testing.T) {
 
 func myMiddle(next SendFunc) SendFunc {
 	return func(r *Request) (*amqp.Delivery, error) {
-		r.Publishing().Body = []byte("middleware message")
+		r.Publishing.Body = []byte("middleware message")
 
 		return next(r)
 	}

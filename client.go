@@ -285,16 +285,16 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 				replyToQueueName = c.replyToQueueName
 			}
 
-			c.debugLog("client: publishing %s", request.publishing.CorrelationId)
+			c.debugLog("client: publishing %s", request.Publishing.CorrelationId)
 
-			request.publishing.ReplyTo = replyToQueueName
+			request.Publishing.ReplyTo = replyToQueueName
 
 			err := outChan.Publish(
 				request.Exchange,
 				request.RoutingKey,
 				c.publishSettings.Mandatory,
 				c.publishSettings.Immediate,
-				request.publishing,
+				request.Publishing,
 			)
 
 			if err != nil {
@@ -307,20 +307,20 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 					// will get an error back and should handle this manually!
 					c.errorLog(
 						"client: could not publish %s, giving up: %s",
-						request.publishing.CorrelationId, err.Error(),
+						request.Publishing.CorrelationId, err.Error(),
 					)
 					request.errChan <- err
 				} else {
 					c.errorLog(
 						"client: could not publish %s, retrying: %s",
-						request.publishing.CorrelationId, err.Error(),
+						request.Publishing.CorrelationId, err.Error(),
 					)
 
 					request.numRetries++
 					c.requests <- request
 				}
 
-				c.errorLog("client: publisher stopped because of error, %s", request.publishing.CorrelationId)
+				c.errorLog("client: publisher stopped because of error, %s", request.Publishing.CorrelationId)
 				return
 			}
 
@@ -330,7 +330,7 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 				request.response <- nil
 			}
 
-			c.debugLog("client: did publish %s", request.publishing.CorrelationId)
+			c.debugLog("client: did publish %s", request.Publishing.CorrelationId)
 		}
 	}
 }
@@ -417,7 +417,7 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	correlationID := uuid.Must(uuid.NewV4()).String()
 
 	// Set the correlation id on the publishing.
-	r.publishing.CorrelationId = correlationID
+	r.Publishing.CorrelationId = correlationID
 
 	// This is where we get any (client) errors if they occure before we could
 	// even send the request.
