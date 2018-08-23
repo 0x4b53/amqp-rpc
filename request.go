@@ -25,6 +25,9 @@ type Request struct {
 	// we assume the request got lost.
 	timeout time.Duration
 
+	// Publishing is the publising that are going to be sent.
+	Publishing amqp.Publishing
+
 	// middlewares holds slice of middlewares to run before or after the client
 	// sends a request. This is only executed for the specific request.
 	middlewares []ClientMiddlewareFunc
@@ -36,9 +39,6 @@ type Request struct {
 
 	// the number of times that the publisher should retry.
 	numRetries int
-
-	// publishing is the publising that are going to be sent.
-	publishing amqp.Publishing
 }
 
 // NewRequest will generate a new request to be published. The default request
@@ -48,7 +48,7 @@ func NewRequest(rk string) *Request {
 		RoutingKey:  rk,
 		Reply:       true,
 		middlewares: []ClientMiddlewareFunc{},
-		publishing: amqp.Publishing{
+		Publishing: amqp.Publishing{
 			ContentType: "text/plain",
 			Headers:     amqp.Table{},
 		},
@@ -60,13 +60,13 @@ func NewRequest(rk string) *Request {
 // Write will write the response Body of the amqp.Publishing.
 // It is safe to call Write multiple times.
 func (r *Request) Write(p []byte) (int, error) {
-	r.publishing.Body = append(r.publishing.Body, p...)
+	r.Publishing.Body = append(r.Publishing.Body, p...)
 	return len(p), nil
 }
 
 // WriteHeader will write a header for the specified key.
 func (r *Request) WriteHeader(header string, value interface{}) {
-	r.publishing.Headers[header] = value
+	r.Publishing.Headers[header] = value
 }
 
 // WithExchange will set the exchange on to which the request will be published.
@@ -79,7 +79,7 @@ func (r *Request) WithExchange(e string) *Request {
 // WithHeaders will set the full amqp.Table as the headers for the request.
 // Note that this will overwrite anything previously set on the headers.
 func (r *Request) WithHeaders(h amqp.Table) *Request {
-	r.publishing.Headers = h
+	r.Publishing.Headers = h
 	return r
 }
 
@@ -104,14 +104,14 @@ func (r *Request) WithResponse(wr bool) *Request {
 // request. This value will bee set as the ContentType in the amqp.Publishing
 // type but also preserved as a header value.
 func (r *Request) WithContentType(ct string) *Request {
-	r.publishing.ContentType = ct
+	r.Publishing.ContentType = ct
 	return r
 }
 
-// WithStringBody will convert a string to a byte slice and add as the body
+// WithBody will convert a string to a byte slice and add as the body
 // passed for the request.
 func (r *Request) WithBody(b string) *Request {
-	r.publishing.Body = []byte(b)
+	r.Publishing.Body = []byte(b)
 
 	return r
 }
@@ -124,11 +124,10 @@ func (r *Request) AddMiddleware(m ClientMiddlewareFunc) *Request {
 	return r
 }
 
-func (r *Request) Publishing() *amqp.Publishing {
-	return &r.publishing
-}
-
+// startTimeout will start the timeout counter by using Duration.After.
+// Is will also set the Expiration field for the Publishing so that amqp won't
+// hold on to the message in the queue after the timeout has happened.
 func (r *Request) startTimeout() <-chan time.Time {
-	r.publishing.Expiration = fmt.Sprintf("%d", r.timeout.Nanoseconds()/1e6)
+	r.Publishing.Expiration = fmt.Sprintf("%d", r.timeout.Nanoseconds()/1e6)
 	return time.After(r.timeout)
 }
