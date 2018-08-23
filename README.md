@@ -202,6 +202,15 @@ Just like the server you can choose to chain your custom methods to one or just
 add them one by one with the add interface.
 
 ```go
+func MySendMiddleware (next amqprpc.SendFunc) amqprpc.SendFunc {
+    return func(r *amqprpc.Request) (*amqp.Delivery, error) {
+        r.Publishing.Headers["foo"] = "bar"
+        r.Publishing.AppId = "my-app"
+
+        return next(r)
+    }
+}
+
 c := NewClient(url).AddMiddleware(MySendMiddleware)
 ```
 
@@ -210,7 +219,7 @@ interface.
 
 ```go
 c := NewClient(url).AddMiddleware(MySendMiddleware)
-r := NewRequest("some.where").AddMiddleware(MyMoreImportantMiddleware)
+r := NewRequest("some.where").AddMiddleware(MyOtherMiddleware)
 
 c.Send(r)
 ```
@@ -221,38 +230,37 @@ clients middlewares. This is so the request can override headers etc.
 Se `examples/middleware` for more examples.
 
 ### Logger
+You can specifiy an optional logger for amqp errors, unexpected behaviour etc.
+By default only error logging is turned on and is logged via the log package's standard logging.
 
-Usually you don't want to log much in a package but since this can tend to be
-more of a part of an application there are some messages being logged. And an
-easy way to log from the embedded application can be to use the very same
-logger. The logger package is actually two loggers implementing a `Logger`
-interface which only requires `Print` and `Printf`. This means that the standard
-logger will work just fine and will even be provided in the `init()` function
-called when importing the logger.
-
-The loggers can be overridden with your custom logger by calling `SetInfoLogger`
-or `SetWarnLogger`.
+But you can profide your own logging function for both error and debug on both the `Client` and the `Server`.
 
 ```go
-logrus.SetFormatter(&logrus.JSONFormatter{})
-logrus.SetOutput(os.Stdout)
+debugLogger := log.New(os.Stdout, "DEBUG - ", log.LstdFlags)
+errorLogger := log.New(os.Stdout, "ERROR - ", log.LstdFlags)
 
-l := logrus.WithFields(logrus.Fields{})
+server := NewServer(url)
+server.WithErrorLogger(errorLogger.Printf)
+server.WithDebugLogger(debugLogger.Printf)
 
-// Use logrus with JSON format as info logger
-logger.SetInfoLogger(l)
-
-logger.Infof("Custom logger: %+v", l)
+client := NewClient(url)
+client.WithErrorLogger(errorLogger.Printf)
+client.WithDebugLogger(debugLogger.Printf)
 ```
 
-If you don't want anything to log at any time just set a logger pointed to
-`/dev/null`, i.e like this:
+This is perfect when for example using Logrus logger:
 
 ```go
-silentLogger := log.New(ioutil.Discard, "", log.LstdFlags)
+logger := logrus.New()
+logger.SetLevel(logrus.DebugLevel)
 
-logger.SetInfoLogger(silentLogger)
-logger.SetWarnLogger(silentLogger)
+server := NewServer(url)
+server.WithErrorLogger(logger.Warnf)
+server.WithDebugLogger(logger.Debugf)
+
+client := NewClient(url)
+client.WithErrorLogger(logger.Errorf)
+client.WithDebugLogger(logger.Debugf)
 ```
 
 ### Connection and TLS

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bombsimon/amqp-rpc/testhelpers"
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
@@ -16,34 +15,34 @@ var bindingsTestURL = "amqp://guest:guest@localhost:5672"
 
 func TestFanout(t *testing.T) {
 	var timesCalled int64 = 0
-
-	s1 := NewServer(bindingsTestURL)
-	s2 := NewServer(bindingsTestURL)
-	s3 := NewServer(bindingsTestURL)
+	var called = make(chan struct{})
 
 	fanoutHandler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		atomic.AddInt64(&timesCalled, 1)
+		called <- struct{}{}
 	}
 
-	s1.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
-	s2.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
-	s3.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
+	for range make([]struct{}, 3) {
+		s := NewServer(bindingsTestURL)
+		s.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
 
-	stop1 := testhelpers.StartServer(s1)
-	stop2 := testhelpers.StartServer(s2)
-	stop3 := testhelpers.StartServer(s3)
-	defer stop1()
-	defer stop2()
-	defer stop3()
-
-	// Ensure all queues are declared and ready.
-	time.Sleep(1 * time.Second)
+		stop := startAndWait(s)
+		defer stop()
+	}
 
 	c := NewClient(bindingsTestURL)
 	_, err := c.Send(NewRequest("").WithExchange("fanout-exchange").WithResponse(false))
 
 	// Ensure all handlers have added to the timesCalled variable.
-	time.Sleep(1 * time.Second)
+	for range make([]int, 3) {
+		select {
+		case <-called:
+			// Great!
+		case <-time.After(time.Second):
+			t.Error("fanoutHandler was not called")
+		}
+
+	}
 
 	Equal(t, err, nil)
 	Equal(t, atomic.LoadInt64(&timesCalled), int64(3))
@@ -69,7 +68,7 @@ func TestTopic(t *testing.T) {
 		wasCalled["baz.*"] <- string(d.Body)
 	}))
 
-	stop := testhelpers.StartServer(s)
+	stop := startAndWait(s)
 	defer stop()
 
 	cases := []struct {
@@ -127,7 +126,7 @@ func TestHeaders(t *testing.T) {
 
 	s.Bind(HeadersBinding(h, handler))
 
-	stop := testhelpers.StartServer(s)
+	stop := startAndWait(s)
 	defer stop()
 
 	// Ensure 'somewhere.*' matches 'somewhere.there'.

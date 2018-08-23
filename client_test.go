@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bombsimon/amqp-rpc/testhelpers"
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
@@ -19,7 +18,7 @@ func TestClient(t *testing.T) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
 
-	stop := testhelpers.StartServer(s)
+	stop := startAndWait(s)
 	defer stop()
 
 	client := NewClient("amqp://guest:guest@localhost:5672/")
@@ -49,22 +48,26 @@ func TestClientConfig(t *testing.T) {
 	NotEqual(t, acClient, nil)
 }
 
-func TestReconnect(t *testing.T) {
-	dialer, connections := testhelpers.TestDialer(t)
+func TestClientReconnect(t *testing.T) {
+	dialer, connections := testDialer(t)
 	client := NewClient(clientTestURL).WithDialConfig(amqp.Config{Dial: dialer})
 	NotEqual(t, client, nil)
+
+	client.WithDebugLogger(client.errorLog)
 
 	// Force a connection by calling send.
 	_, err := client.Send(NewRequest("myqueue").WithResponse(false))
 	Equal(t, err, nil)
 
 	// Hook into the connection, disconnect
-	time.Sleep(100 * time.Millisecond)
 	conn, _ := <-connections
 	conn.Close()
+	time.Sleep(10 * time.Millisecond)
 
-	_, err = client.Send(NewRequest("myqueue").WithBody("client testing"))
-	NotEqual(t, err, nil)
+	r := NewRequest("myqueue").WithBody("client testing").WithResponse(false)
+	r.numRetries = 100
+	_, err = client.Send(r)
+	MatchRegex(t, err.Error(), "channel/connection is not open")
 
 	// Ensure we're reconnected
 	time.Sleep(100 * time.Millisecond)
@@ -73,13 +76,13 @@ func TestReconnect(t *testing.T) {
 	Equal(t, err != nil, false)
 }
 
-func TestTimeout(t *testing.T) {
+func TestClientTimeout(t *testing.T) {
 	s := NewServer(clientTestURL)
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-		time.Sleep(1 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}))
 
-	stop := testhelpers.StartServer(s)
+	stop := startAndWait(s)
 	defer stop()
 
 	cases := []struct {
@@ -116,7 +119,7 @@ func TestGracefulShutdown(t *testing.T) {
 		fmt.Fprintf(rw, "hello")
 	}))
 
-	stop := testhelpers.StartServer(s)
+	stop := startAndWait(s)
 	defer stop()
 
 	c := NewClient(clientTestURL)
