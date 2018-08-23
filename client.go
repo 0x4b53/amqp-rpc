@@ -437,8 +437,8 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 
 	// If a request timeout is specified, use that one, otherwise use the
 	// clients global timeout settings.
-	if r.timeout.Nanoseconds() == 0 {
-		r.timeout = c.timeout
+	if r.Timeout.Nanoseconds() == 0 {
+		r.Timeout = c.timeout
 	}
 
 	// start the timeout counting now.

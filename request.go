@@ -21,9 +21,9 @@ type Request struct {
 	// or just send the request without waiting.
 	Reply bool
 
-	// timeout is the time we should wait after a request is sent before
+	// Timeout is the time we should wait after a request is sent before
 	// we assume the request got lost.
-	timeout time.Duration
+	Timeout time.Duration
 
 	// Publishing is the publising that are going to be sent.
 	Publishing amqp.Publishing
@@ -87,7 +87,7 @@ func (r *Request) WithHeaders(h amqp.Table) *Request {
 // t will be rounded using the duration's Round function to the nearest
 // multiple of a millisecond. Rounding will be away from zero.
 func (r *Request) WithTimeout(t time.Duration) *Request {
-	r.timeout = t.Round(time.Millisecond)
+	r.Timeout = t.Round(time.Millisecond)
 	return r
 }
 
@@ -128,6 +128,6 @@ func (r *Request) AddMiddleware(m ClientMiddlewareFunc) *Request {
 // Is will also set the Expiration field for the Publishing so that amqp won't
 // hold on to the message in the queue after the timeout has happened.
 func (r *Request) startTimeout() <-chan time.Time {
-	r.Publishing.Expiration = fmt.Sprintf("%d", r.timeout.Nanoseconds()/1e6)
-	return time.After(r.timeout)
+	r.Publishing.Expiration = fmt.Sprintf("%d", r.Timeout.Nanoseconds()/1e6)
+	return time.After(r.Timeout)
 }
