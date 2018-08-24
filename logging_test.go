@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bombsimon/amqp-rpc/testhelpers"
 	. "gopkg.in/go-playground/assert.v1"
 )
 
@@ -18,7 +17,7 @@ func TestServerLogging(t *testing.T) {
 	s.WithDebugLogger(logger.Printf)
 	s.WithErrorLogger(logger.Printf)
 
-	stop := testhelpers.StartServer(s)
+	stop := startAndWait(s)
 	defer stop()
 
 	NotEqual(t, buf.String(), "")

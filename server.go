@@ -21,6 +21,9 @@ const (
 // HandlerFunc is the function that handles all request based on the routing key.
 type HandlerFunc func(context.Context, *ResponseWriter, amqp.Delivery)
 
+// OnStartedFunc is the function that can be passed to Server.OnStarted().
+type OnStartedFunc func(*amqp.Connection, *amqp.Connection, *amqp.Channel, *amqp.Channel)
+
 // processedRequest is used to add the response from a handler func combined
 // with a amqp.Delivery. The reasone we need to combine those is that we reply
 // to each request in a separate go routine and the delivery is required to
@@ -37,6 +40,9 @@ type processedRequest struct {
 type Server struct {
 	// url is the URL where the server should dial to start subscribing.
 	url string
+
+	// onStarteds will all be executed after the server has finished startup.
+	onStarteds []OnStartedFunc
 
 	// bindings is a list of HandlerBinding that holds information about the
 	// bindings and it's handlers.
@@ -128,6 +134,19 @@ func (s *Server) AddMiddleware(m ServerMiddlewareFunc) *Server {
 	return s
 }
 
+/*
+OnStarted can be used to hook into the connections/channels that the server is
+using. This can be useful if you want more control over amqp directly.
+
+	server := NewServer(url)
+	server.OnStarted(func(inConn, outConn *amqp.Connection, inChan, outChan *amqp.Channel) {
+		// Do something with amqp connections/channels.
+	})
+*/
+func (s *Server) OnStarted(f OnStartedFunc) {
+	s.onStarteds = append(s.onStarteds, f)
+}
+
 // Bind will add a HandlerBinding to the list of servers to serve.
 func (s *Server) Bind(binding HandlerBinding) {
 	s.bindings = append(s.bindings, binding)
@@ -188,6 +207,12 @@ func (s *Server) listenAndServe() error {
 	// This WaitGroup will reach 0 when the responder() has finished sending all responses.
 	responderWg := sync.WaitGroup{}
 	go s.responder(outputCh, &responderWg)
+
+	// Notify everyone that the server has started. Runs sequentially so there
+	// isn't any race conditions when working with the connections or channels.
+	for _, onStarted := range s.onStarteds {
+		onStarted(inputConn, outputConn, inputCh, inputCh)
+	}
 
 	err = monitorAndWait(
 		s.stopChan,

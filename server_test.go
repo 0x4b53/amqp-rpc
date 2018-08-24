@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bombsimon/amqp-rpc/testhelpers"
 	"github.com/streadway/amqp"
 	. "gopkg.in/go-playground/assert.v1"
 )
@@ -26,7 +25,7 @@ func TestSendWithReply(t *testing.T) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
 
-	stop := testhelpers.StartServer(s)
+	stop := startAndWait(s)
 	defer stop()
 
 	c := NewClient(serverTestURL)
@@ -59,7 +58,7 @@ func TestMiddleware(t *testing.T) {
 		fmt.Fprint(rw, "this is not allowed")
 	}))
 
-	stop := testhelpers.StartServer(s)
+	stop := startAndWait(s)
 	defer stop()
 
 	c := NewClient(serverTestURL)
@@ -78,32 +77,17 @@ func TestMiddleware(t *testing.T) {
 }
 
 func TestServerReconnect(t *testing.T) {
-	conn, err := amqp.Dial(serverTestURL)
-
-	Equal(t, err, nil)
-	defer conn.Close()
-
-	ch, err := conn.Channel()
-	Equal(t, err, nil)
-	defer ch.Close()
-
-	ch.QueueDelete(
-		"myqueue",
-		false, // ifUnused
-		false, // ifEmpty
-		false, // noWait
-	)
-
-	dialer, connections := testhelpers.TestDialer(t)
+	dialer, connections := testDialer(t)
 	s := NewServer(serverTestURL).WithDialConfig(amqp.Config{Dial: dialer})
 
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
 
-	stop := testhelpers.StartServer(s)
+	stop := startAndWait(s)
 	defer stop()
+
 	c := NewClient(serverTestURL)
 
 	for i := 0; i < 2; i++ {
@@ -116,5 +100,31 @@ func TestServerReconnect(t *testing.T) {
 		conn.Close()
 
 		Equal(t, reply.Body, []byte(fmt.Sprintf("Got message: %s", message)))
+	}
+}
+
+func TestServerOnStarted(t *testing.T) {
+	didStart := make(chan struct{})
+	notNills := [4]interface{}{}
+
+	s := NewServer(serverTestURL)
+	s.OnStarted(func(inC, outC *amqp.Connection, inCh, outCh *amqp.Channel) {
+		notNills[0] = inC
+		notNills[1] = outC
+		notNills[2] = inCh
+		notNills[3] = outCh
+		close(didStart)
+	})
+
+	stop := startAndWait(s)
+	defer stop()
+
+	select {
+	case <-didStart:
+		for i := range notNills {
+			NotEqual(t, notNills[i], nil)
+		}
+	case <-time.After(time.Second):
+		t.Error("OnStarted was never called")
 	}
 }

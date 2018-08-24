@@ -17,7 +17,8 @@ func TestRequest(t *testing.T) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
 
-	go s.ListenAndServe()
+	stop := startAndWait(s)
+	defer stop()
 
 	client := NewClient(url)
 	NotEqual(t, client, nil)
