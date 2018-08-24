@@ -230,10 +230,13 @@ clients middlewares. This is so the request can override headers etc.
 Se `examples/middleware` for more examples.
 
 ### Logger
-You can specifiy an optional logger for amqp errors, unexpected behaviour etc.
-By default only error logging is turned on and is logged via the log package's standard logging.
 
-But you can profide your own logging function for both error and debug on both the `Client` and the `Server`.
+You can specifiy an optional logger for amqp errors, unexpected behaviour etc.
+By default only error logging is turned on and is logged via the log package's
+standard logging.
+
+But you can profide your own logging function for both error and debug on both
+the `Client` and the `Server`.
 
 ```go
 debugLogger := log.New(os.Stdout, "DEBUG - ", log.LstdFlags)
