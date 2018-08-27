@@ -4,7 +4,7 @@ import (
 	"github.com/streadway/amqp"
 )
 
-// ackAwareChannel implements the amqp.Acknowledger interface with the addtion
+// ackAwareChannel implements the amqp.Acknowledger interface with the addition
 // that it can tell if a message has been acked, nacked or rejected.
 type ackAwareChannel struct {
 	ch      amqp.Acknowledger

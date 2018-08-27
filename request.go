@@ -91,9 +91,9 @@ func (r *Request) WithTimeout(t time.Duration) *Request {
 	return r
 }
 
-// WithResponse sets the value determening wether the request should wait for a
+// WithResponse sets the value determining wether the request should wait for a
 // response or not. A request that does not require a response will only catch
-// errors occuring before the reuqest has been published.
+// errors occurring before the reuqest has been published.
 func (r *Request) WithResponse(wr bool) *Request {
 	r.Reply = wr
 

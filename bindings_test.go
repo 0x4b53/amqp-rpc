@@ -14,7 +14,7 @@ import (
 var bindingsTestURL = "amqp://guest:guest@localhost:5672"
 
 func TestFanout(t *testing.T) {
-	var timesCalled int64 = 0
+	var timesCalled int64
 	var called = make(chan struct{})
 
 	fanoutHandler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
