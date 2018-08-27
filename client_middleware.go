@@ -18,5 +18,5 @@ func ClientMiddlewareChain(next SendFunc, m ...ClientMiddlewareFunc) SendFunc {
 		return next
 	}
 
-	return m[0](ClientMiddlewareChain(next, m[1:len(m)]...))
+	return m[0](ClientMiddlewareChain(next, m[1:]...))
 }

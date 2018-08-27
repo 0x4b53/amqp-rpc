@@ -55,5 +55,5 @@ func ServerMiddlewareChain(next HandlerFunc, m ...ServerMiddlewareFunc) HandlerF
 
 	// Nest the middlewares so that we attatch them in order.
 	// The first middleware will have the second middleware applied, and so on.
-	return m[0](ServerMiddlewareChain(next, m[1:len(m)]...))
+	return m[0](ServerMiddlewareChain(next, m[1:]...))
 }
