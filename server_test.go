@@ -128,3 +128,27 @@ func TestServerOnStarted(t *testing.T) {
 		t.Error("OnStarted was never called")
 	}
 }
+
+func TestStopWhenStarting(t *testing.T) {
+	s := NewServer("amqp://guest:guest@wont-connect.com:5672")
+
+	done := make(chan struct{})
+	go func() {
+		s.ListenAndServe()
+		close(done)
+	}()
+
+	// Cannot use OnStarted() since we won't successfully start.
+	time.Sleep(10 * time.Millisecond)
+	s.Stop()
+
+	// Block so we're sure that we actually exited.
+	select {
+	case <-done:
+		// The done channel was closed!
+		Equal(t, nil, nil)
+	case <-time.After(10 * time.Second):
+		// No success within 10 seconds
+		t.Error("Didn't succeed to close server")
+	}
+}

@@ -161,10 +161,22 @@ func (s *Server) ListenAndServe() {
 
 	for {
 		err := s.listenAndServe()
+
+		// If we couldn't run listenAndServe and an error was returned, make
+		// sure to check if the stopChan was closed - a user might know about
+		// connection problems and have call Stop(). If the channel isn't
+		// read/closed within 500ms, retry.
 		if err != nil {
-			s.errorLog("server: got error: %s, will reconnect in %v second(s)", err, 0.5)
-			time.Sleep(500 * time.Millisecond)
-			continue
+			select {
+			case _, ok := <-s.stopChan:
+				if !ok {
+					s.debugLog("server: the stopChan was triggered in a reconnect loop, exiting")
+					break
+				}
+			case <-time.After(500 * time.Millisecond):
+				s.errorLog("server: got error: %s, will reconnect in %v second(s)", err, 0.5)
+				continue
+			}
 		}
 
 		s.debugLog("server: listener exiting gracefully")
