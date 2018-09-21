@@ -83,6 +83,10 @@ type Client struct {
 	// print most of what is happening internally.
 	// If nil, logging is not done.
 	debugLog LogFunc
+
+	// Sender is the main send function called after all middlewares has been
+	// chained and called. This field can be overridden to simplfy testing.
+	Sender SendFunc
 }
 
 // NewClient will return a pointer to a new Client. There are two ways to manage the
@@ -111,6 +115,8 @@ func NewClient(url string) *Client {
 		errorLog:           log.Printf,                                  // use the standard logger default.
 		debugLog:           func(format string, args ...interface{}) {}, // don't print anything default.
 	}
+
+	c.Sender = c.send
 
 	// Set default values to use when crearing channels and consumers.
 	c.setDefaults()
@@ -392,6 +398,12 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 
 // Send will send a Request by using a amqp.Publishing.
 func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
+	middlewares := append(c.middlewares, r.middlewares...)
+
+	return ClientMiddlewareChain(c.Sender, middlewares...)(r)
+}
+
+func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// Ensure that the publisher is running. The Once is recreated on each
 	// disconnect and since it has it's own mutex we don't need any other
 	// locks.
@@ -403,12 +415,6 @@ func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 		},
 	)
 
-	middlewares := append(c.middlewares, r.middlewares...)
-
-	return ClientMiddlewareChain(c.send, middlewares...)(r)
-}
-
-func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// This is where we get the responses back.
 	// If this request doesn't want a reply back (by setting Reply to false)
 	// this channel will get a nil message after publisher has Published the
