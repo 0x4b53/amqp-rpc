@@ -27,7 +27,7 @@ func main() {
 	go startServer()
 
 	c := amqprpc.NewClient(url).AddMiddleware(handlePassword)
-	r := amqprpc.NewRequest("exchanger")
+	r := amqprpc.NewRequest().WithRoutingKey("exchanger")
 
 	for _, i := range []int{1, 2, 3} {
 		fmt.Printf("%-10s %d: password is '%s'\n", "Request", i, password)
@@ -40,7 +40,7 @@ func main() {
 		}
 	}
 
-	r2 := amqprpc.NewRequest("exchanger").AddMiddleware(
+	r2 := amqprpc.NewRequest().WithRoutingKey("exchanger").AddMiddleware(
 		func(next amqprpc.SendFunc) amqprpc.SendFunc {
 			return func(r *amqprpc.Request) (*amqp.Delivery, error) {
 				fmt.Println(">> I'm being executed before Send(), but only for ONE request!")

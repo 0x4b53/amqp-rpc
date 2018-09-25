@@ -24,7 +24,8 @@ func TestRequest(t *testing.T) {
 	NotEqual(t, client, nil)
 
 	// Test simple form.
-	request := NewRequest("myqueue").
+	request := NewRequest().
+		WithRoutingKey("myqueue").
 		WithResponse(true).
 		WithBody("hello request")
 
@@ -33,7 +34,8 @@ func TestRequest(t *testing.T) {
 	Equal(t, response.Body, []byte("Got message: hello request"))
 
 	// Test with exchange, headers, content type nad raw body.
-	request = NewRequest("myqueue").
+	request = NewRequest().
+		WithRoutingKey("myqueue").
 		WithExchange("").
 		WithHeaders(amqp.Table{}).
 		WithResponse(false).
@@ -44,7 +46,8 @@ func TestRequest(t *testing.T) {
 	Equal(t, err, nil)
 	Equal(t, response, nil)
 
-	request = NewRequest("myqueue").
+	request = NewRequest().
+		WithRoutingKey("myqueue").
 		WithBody("original message").
 		AddMiddleware(myMiddle)
 
@@ -55,7 +58,8 @@ func TestRequest(t *testing.T) {
 }
 
 func TestRequestWriting(t *testing.T) {
-	r := NewRequest("foo")
+	r := NewRequest().WithRoutingKey("foo")
+
 	Equal(t, len(r.Publishing.Body), 0)
 	Equal(t, len(r.Publishing.Headers), 0)
 
@@ -98,6 +102,31 @@ func TestRequestWriting(t *testing.T) {
 			"baz":         "foo",
 		})
 	})
+}
+
+func TestRequestContext(t *testing.T) {
+	changeThroughMiddleware := false
+
+	myMiddle := func(next SendFunc) SendFunc {
+		return func(r *Request) (*amqp.Delivery, error) {
+			changeThroughMiddleware = r.Context.Value("changer").(bool)
+
+			return next(r)
+		}
+	}
+
+	ctx := context.WithValue(context.Background(), "changer", true)
+	r := NewRequest().WithContext(ctx)
+
+	c := NewClient("").AddMiddleware(myMiddle)
+	c.Sender = func(r *Request) (*amqp.Delivery, error) {
+		// Usually i would send something...
+		return &amqp.Delivery{}, nil
+	}
+
+	c.Send(r)
+
+	Equal(t, changeThroughMiddleware, true)
 }
 
 func myMiddle(next SendFunc) SendFunc {

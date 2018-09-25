@@ -29,7 +29,7 @@ func TestSendWithReply(t *testing.T) {
 	defer stop()
 
 	c := NewClient(serverTestURL)
-	request := NewRequest("myqueue").WithBody("this is a message")
+	request := NewRequest().WithRoutingKey("myqueue").WithBody("this is a message")
 	reply, err := c.Send(request)
 
 	Equal(t, err, nil)
@@ -63,13 +63,13 @@ func TestMiddleware(t *testing.T) {
 
 	c := NewClient(serverTestURL)
 
-	request := NewRequest("allowed")
+	request := NewRequest().WithRoutingKey("allowed")
 	reply, err := c.Send(request)
 
 	Equal(t, err, nil)
 	Equal(t, reply.Body, []byte("this is allowed"))
 
-	request = NewRequest("denied")
+	request = NewRequest().WithRoutingKey("denied")
 	reply, err = c.Send(request)
 
 	Equal(t, err, nil)
@@ -92,7 +92,7 @@ func TestServerReconnect(t *testing.T) {
 
 	for i := 0; i < 2; i++ {
 		message := fmt.Sprintf("this is message %v", i)
-		request := NewRequest("myqueue").WithBody(message)
+		request := NewRequest().WithRoutingKey("myqueue").WithBody(message)
 		reply, err := c.Send(request)
 		Equal(t, err, nil)
 

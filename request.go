@@ -1,6 +1,7 @@
 package amqprpc
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -28,6 +29,11 @@ type Request struct {
 	// Publishing is the publising that are going to be sent.
 	Publishing amqp.Publishing
 
+	// Context is a context wich you can use to pass data from where the
+	// request is created to middlewares. By default this will be a
+	// context.Background()
+	Context context.Context
+
 	// middlewares holds slice of middlewares to run before or after the client
 	// sends a request. This is only executed for the specific request.
 	middlewares []ClientMiddlewareFunc
@@ -43,9 +49,9 @@ type Request struct {
 
 // NewRequest will generate a new request to be published. The default request
 // will use the content type "text/plain" and always wait for reply.
-func NewRequest(rk string) *Request {
+func NewRequest() *Request {
 	r := Request{
-		RoutingKey:  rk,
+		Context:     context.Background(),
 		Reply:       true,
 		middlewares: []ClientMiddlewareFunc{},
 		Publishing: amqp.Publishing{
@@ -57,11 +63,18 @@ func NewRequest(rk string) *Request {
 	return &r
 }
 
-// Write will write the response Body of the amqp.Publishing.
-// It is safe to call Write multiple times.
-func (r *Request) Write(p []byte) (int, error) {
-	r.Publishing.Body = append(r.Publishing.Body, p...)
-	return len(p), nil
+// WithRoutingKey will set the routing key for the request.
+func (r *Request) WithRoutingKey(rk string) *Request {
+	r.RoutingKey = rk
+
+	return r
+}
+
+// WithContext will set the context on the request.
+func (r *Request) WithContext(ctx context.Context) *Request {
+	r.Context = ctx
+
+	return r
 }
 
 // WriteHeader will write a header for the specified key.
@@ -80,6 +93,7 @@ func (r *Request) WithExchange(e string) *Request {
 // Note that this will overwrite anything previously set on the headers.
 func (r *Request) WithHeaders(h amqp.Table) *Request {
 	r.Publishing.Headers = h
+
 	return r
 }
 
@@ -88,6 +102,7 @@ func (r *Request) WithHeaders(h amqp.Table) *Request {
 // multiple of a millisecond. Rounding will be away from zero.
 func (r *Request) WithTimeout(t time.Duration) *Request {
 	r.Timeout = t.Round(time.Millisecond)
+
 	return r
 }
 
@@ -105,6 +120,7 @@ func (r *Request) WithResponse(wr bool) *Request {
 // type but also preserved as a header value.
 func (r *Request) WithContentType(ct string) *Request {
 	r.Publishing.ContentType = ct
+
 	return r
 }
 
@@ -114,6 +130,14 @@ func (r *Request) WithBody(b string) *Request {
 	r.Publishing.Body = []byte(b)
 
 	return r
+}
+
+// Write will write the response Body of the amqp.Publishing.
+// It is safe to call Write multiple times.
+func (r *Request) Write(p []byte) (int, error) {
+	r.Publishing.Body = append(r.Publishing.Body, p...)
+
+	return len(p), nil
 }
 
 // AddMiddleware will add a middleware which will be executed when the request
@@ -129,5 +153,6 @@ func (r *Request) AddMiddleware(m ClientMiddlewareFunc) *Request {
 // hold on to the message in the queue after the timeout has happened.
 func (r *Request) startTimeout() <-chan time.Time {
 	r.Publishing.Expiration = fmt.Sprintf("%d", r.Timeout.Nanoseconds()/1e6)
+
 	return time.After(r.Timeout)
 }

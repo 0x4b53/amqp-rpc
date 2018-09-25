@@ -48,7 +48,7 @@ func handleClientUsage(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.D
 
 	c := amqprpc.NewClient("amqps://guest:guest@localhost:5671/").WithTLS(cert)
 
-	request := amqprpc.NewRequest("hello_world").WithBody("Sent with client")
+	request := amqprpc.NewRequest().WithRoutingKey("hello_world").WithBody("Sent with client")
 	response, err := c.Send(request)
 	if err != nil {
 		logger.Printf("Something went wrong: %s", err)

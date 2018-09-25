@@ -23,7 +23,7 @@ func traceClientMiddleware(ID int, b *bytes.Buffer) ClientMiddlewareFunc {
 
 func TestClientMiddlewareChain(t *testing.T) {
 	var (
-		req = NewRequest("")
+		req = NewRequest()
 		b   = bytes.Buffer{}
 	)
 
