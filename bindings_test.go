@@ -31,7 +31,7 @@ func TestFanout(t *testing.T) {
 	}
 
 	c := NewClient(bindingsTestURL)
-	_, err := c.Send(NewRequest("").WithExchange("fanout-exchange").WithResponse(false))
+	_, err := c.Send(NewRequest().WithExchange("fanout-exchange").WithResponse(false))
 
 	// Ensure all handlers have added to the timesCalled variable.
 	for range make([]int, 3) {
@@ -91,7 +91,7 @@ func TestTopic(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.request, func(t *testing.T) {
-			_, err := c.Send(NewRequest(tc.request).WithBody(tc.request).WithExchange("amq.topic").WithResponse(false))
+			_, err := c.Send(NewRequest().WithRoutingKey(tc.request).WithBody(tc.request).WithExchange("amq.topic").WithResponse(false))
 			Equal(t, err, nil)
 
 			for key, expectCalled := range tc.called {
@@ -130,7 +130,7 @@ func TestHeaders(t *testing.T) {
 	defer stop()
 
 	// Ensure 'somewhere.*' matches 'somewhere.there'.
-	response, err := c.Send(NewRequest("").WithExchange("amq.headers").WithHeaders(amqp.Table{"foo": "bar"}))
+	response, err := c.Send(NewRequest().WithExchange("amq.headers").WithHeaders(amqp.Table{"foo": "bar"}))
 
 	Equal(t, err, nil)
 	Equal(t, response.Body, []byte("Hello, world"))

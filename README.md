@@ -133,7 +133,7 @@ means that the server is non blocking and can handle multiple requests at once.
 ```go
 c := NewClient("amqp://guest:guest@localhost:5672")
 
-request := NewRequest("my_endpoint").WithBody("My body").WithResponse(true)
+request := NewRequest().WithRoutingKey("my_endpoint").WithBody("My body").WithResponse(true)
 response, err := c.Send(request)
 if err != nil {
     logger.Warn("Something went wrong", err)
@@ -157,7 +157,27 @@ c := NewClient("amqp://guest:guest@localhost:5672").
     WithHeaders(amqp.Table{})
 
 // Will not connect until this call.
-c.Send(NewRequest("queue_one"))
+c.Send(NewRequest().WithRoutingKey("queue_one"))
+```
+
+#### Sender
+
+The client comes with a default implementation which is a complete send function
+that connects to the message bus, publishes the message and if desired waits for
+a reply. However, the sender is just anotehr `SendFunc` which can be overridden.
+This is great for testing or in other ways mocking without the need implement an
+interface. This library even comes with a test package which can return a client
+of this type!
+
+```go
+customSendFunc := func(r *Request) (*amqp.Delivery, error) {
+    fmt.Println("Will not connect or send")
+
+    return &amqp.Delivery{}, nil
+}
+
+c := amqprpctest.NewTestClient(customSendFunc)
+c.Send(NewRequest())
 ```
 
 #### Request
@@ -173,9 +193,30 @@ responses.
 
 ```go
 c := NewClient("amqp://guest:guest@localhost:5672")
-r := NewRequest("").WithExchange("fanout-exchange").WithResponse(false)
+r := NewRequest().WithExchange("fanout-exchange").WithResponse(false)
 
 _, err := c.Send(r)
+```
+
+Just like the server and client, your options is chainable.
+```go
+r := NewRequest().
+    WithBody(`{"hello":"world"}`).
+    WithContentType("application/json").
+    WithContext(context.Background().
+    WithExchange("custom.exchange").
+    WithHeaders(amqp.Headers{}).
+    WithResponse(true).
+    WithRoutingKey("routing-key").
+    WithTimeout(5 * time.Second)
+```
+
+Or use the request as an io.Writer(), like the `ResponseWriter`.
+```go
+r := NewRequest()
+
+encoder := json.NewEncoder(r)
+encoder.Encode(serializableObject)
 ```
 
 **Note**: If you request a response when sending to a fanout exchange the
@@ -219,7 +260,7 @@ interface.
 
 ```go
 c := NewClient(url).AddMiddleware(MySendMiddleware)
-r := NewRequest("some.where").AddMiddleware(MyOtherMiddleware)
+r := NewRequest().WithRoutingKey("some.where").AddMiddleware(MyOtherMiddleware)
 
 c.Send(r)
 ```

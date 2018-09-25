@@ -26,7 +26,7 @@ func Benchmark(b *testing.B) {
 	b.Run("WithReplies", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			result, _ = c.Send(amqprpc.NewRequest(queueName))
+			result, _ = c.Send(amqprpc.NewRequest().WithRoutingKey(queueName))
 		}
 	})
 
@@ -34,21 +34,21 @@ func Benchmark(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				result, _ = c.Send(amqprpc.NewRequest(queueName))
+				result, _ = c.Send(amqprpc.NewRequest().WithRoutingKey(queueName))
 			}
 		})
 	})
 	b.Run("WithoutReplies", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			result, _ = c.Send(amqprpc.NewRequest(queueName).WithResponse(false))
+			result, _ = c.Send(amqprpc.NewRequest().WithRoutingKey(queueName).WithResponse(false))
 		}
 	})
 	b.Run("WithoutReplies-Parallel", func(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				result, _ = c.Send(amqprpc.NewRequest(queueName).WithResponse(false))
+				result, _ = c.Send(amqprpc.NewRequest().WithRoutingKey(queueName).WithResponse(false))
 			}
 		})
 	})

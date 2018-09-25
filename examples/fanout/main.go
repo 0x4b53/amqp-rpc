@@ -32,7 +32,7 @@ func main() {
 	time.Sleep(1 * time.Second)
 
 	c := amqprpc.NewClient("amqp://guest:guest@localhost:5672/")
-	r := amqprpc.NewRequest("").
+	r := amqprpc.NewRequest().
 		WithExchange("cool-exchange").
 		WithBody("Seding fanout").
 		WithResponse(false)
@@ -44,7 +44,7 @@ func main() {
 
 	time.Sleep(1 * time.Second)
 
-	response, err := c.Send(amqprpc.NewRequest("times_called"))
+	response, err := c.Send(amqprpc.NewRequest().WithRoutingKey("times_called"))
 	if err != nil {
 		fmt.Println("Woops: ", err)
 	}

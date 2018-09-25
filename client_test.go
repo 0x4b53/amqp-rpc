@@ -24,7 +24,7 @@ func TestClient(t *testing.T) {
 	client := NewClient("amqp://guest:guest@localhost:5672/")
 	NotEqual(t, client, nil)
 
-	request := NewRequest("myqueue").WithBody("client testing")
+	request := NewRequest().WithRoutingKey("myqueue").WithBody("client testing")
 	response, err := client.Send(request)
 	Equal(t, err, nil)
 	Equal(t, response.Body, []byte("Got message: client testing"))
@@ -56,7 +56,7 @@ func TestClientReconnect(t *testing.T) {
 	client.WithDebugLogger(client.errorLog)
 
 	// Force a connection by calling send.
-	_, err := client.Send(NewRequest("myqueue").WithResponse(false))
+	_, err := client.Send(NewRequest().WithResponse(false))
 	Equal(t, err, nil)
 
 	// Hook into the connection, disconnect
@@ -64,7 +64,7 @@ func TestClientReconnect(t *testing.T) {
 	conn.Close()
 	time.Sleep(10 * time.Millisecond)
 
-	r := NewRequest("myqueue").WithBody("client testing").WithResponse(false)
+	r := NewRequest().WithBody("client testing").WithResponse(false)
 	r.numRetries = 100
 	_, err = client.Send(r)
 	MatchRegex(t, err.Error(), "channel/connection is not open")
@@ -72,7 +72,7 @@ func TestClientReconnect(t *testing.T) {
 	// Ensure we're reconnected
 	time.Sleep(100 * time.Millisecond)
 
-	_, err = client.Send(NewRequest("myqueue").WithBody("client testing").WithResponse(false))
+	_, err = client.Send(NewRequest().WithBody("client testing").WithResponse(false))
 	Equal(t, err != nil, false)
 }
 
@@ -92,17 +92,17 @@ func TestClientTimeout(t *testing.T) {
 		// Client with timeout but no timeout on the Request.
 		{
 			client:  NewClient(clientTestURL).WithTimeout(1 * time.Millisecond),
-			request: NewRequest("myqueue"),
+			request: NewRequest().WithRoutingKey("myqueue"),
 		},
 		// Request with timeout but no timeout on the Client.
 		{
 			client:  NewClient(clientTestURL),
-			request: NewRequest("myqueue").WithTimeout(1 * time.Millisecond),
+			request: NewRequest().WithRoutingKey("myqueue").WithTimeout(1 * time.Millisecond),
 		},
 		// Request timeout overrides the Client timeout.
 		{
 			client:  NewClient(clientTestURL).WithTimeout(10 * time.Second),
-			request: NewRequest("myqueue").WithTimeout(1 * time.Millisecond),
+			request: NewRequest().WithRoutingKey("myqueue").WithTimeout(1 * time.Millisecond),
 		},
 	}
 
@@ -124,7 +124,7 @@ func TestGracefulShutdown(t *testing.T) {
 
 	c := NewClient(clientTestURL)
 
-	r, err := c.Send(NewRequest("myqueue"))
+	r, err := c.Send(NewRequest().WithRoutingKey("myqueue"))
 
 	Equal(t, err, nil)
 	Equal(t, string(r.Body), "hello")
@@ -134,7 +134,7 @@ func TestGracefulShutdown(t *testing.T) {
 	// We should have a new synx.Once and reconnect after a disconnect.
 	time.Sleep(50 * time.Millisecond)
 
-	r, err = c.Send(NewRequest("myqueue"))
+	r, err = c.Send(NewRequest().WithRoutingKey("myqueue"))
 	Equal(t, err, nil)
 	Equal(t, string(r.Body), "hello")
 }
