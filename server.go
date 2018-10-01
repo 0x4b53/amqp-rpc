@@ -363,7 +363,7 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 
 func (s *Server) declareAndBind(inputCh *amqp.Channel, binding HandlerBinding) (string, error) {
 	queue, err := inputCh.QueueDeclare(
-		binding.RoutingKey,
+		binding.QueueName,
 		s.queueDeclareSettings.Durable,
 		s.queueDeclareSettings.DeleteWhenUnused,
 		s.queueDeclareSettings.Exclusive,

@@ -53,10 +53,11 @@ s := NewServer("amqp://guest:guest@localhost:5672")
 
 s.Bind(DirectBinding("routing_key", handleFunc))
 s.Bind(FanoutBinding("fanout-exchange", handleFunc))
-s.Bind(TopicBinding("routing_key.#", handleFunc))
-s.Bind(HeadersBinding(amqp.Table{"x-match": "all", "foo": "bar"}, handleFunc))
+s.Bind(TopicBinding("queue-name", "routing_key.#", handleFunc))
+s.Bind(HeadersBinding("queue-name", amqp.Table{"x-match": "all", "foo": "bar"}, handleFunc))
 
 customBinding := HandlerBinding{
+    QueueName:    "oh-sweet-queue",
     ExchangeName: "my-exchange",
     ExchangeType: "direct",
     RoutingKey:   "my-key",

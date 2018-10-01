@@ -8,6 +8,7 @@ import (
 // declared and bound. If the ExchangeName is not defined (an empty string), the
 // queue will not be bound to the exchange but assumed to use the default match.
 type HandlerBinding struct {
+	QueueName    string
 	ExchangeName string
 	ExchangeType string
 	RoutingKey   string
@@ -19,6 +20,7 @@ type HandlerBinding struct {
 // routing key will be mapped to one handler.
 func DirectBinding(routingKey string, handler HandlerFunc) HandlerBinding {
 	return HandlerBinding{
+		QueueName:    routingKey,
 		ExchangeName: "amq.direct",
 		ExchangeType: "direct",
 		RoutingKey:   routingKey,
@@ -42,8 +44,9 @@ func FanoutBinding(exchangeName string, handler HandlerFunc) HandlerBinding {
 
 // TopicBinding returns a HandlerBinding to use for topic exchanges. The default
 // exchange (amq.topic) will be used. The topic is matched on the routing key.
-func TopicBinding(routingKey string, handler HandlerFunc) HandlerBinding {
+func TopicBinding(queueName, routingKey string, handler HandlerFunc) HandlerBinding {
 	return HandlerBinding{
+		QueueName:    queueName,
 		ExchangeName: "amq.topic",
 		ExchangeType: "topic",
 		RoutingKey:   routingKey,
@@ -55,8 +58,9 @@ func TopicBinding(routingKey string, handler HandlerFunc) HandlerBinding {
 // HeadersBinding returns a HandlerBinding to use for header exchanges that will
 // match on specific headers. The heades are specified as an amqp.Table. The
 // default exchange amq.headers will be used.
-func HeadersBinding(headers amqp.Table, handler HandlerFunc) HandlerBinding {
+func HeadersBinding(queueName string, headers amqp.Table, handler HandlerFunc) HandlerBinding {
 	return HandlerBinding{
+		QueueName:    queueName,
 		ExchangeName: "amq.headers",
 		ExchangeType: "headers",
 		RoutingKey:   "",

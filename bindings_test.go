@@ -58,13 +58,13 @@ func TestTopic(t *testing.T) {
 	s := NewServer(bindingsTestURL)
 	c := NewClient(bindingsTestURL)
 
-	s.Bind(TopicBinding("foo.#", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	s.Bind(TopicBinding("", "foo.#", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		wasCalled["foo.#"] <- string(d.Body)
 	}))
-	s.Bind(TopicBinding("foo.*", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	s.Bind(TopicBinding("", "foo.*", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		wasCalled["foo.*"] <- string(d.Body)
 	}))
-	s.Bind(TopicBinding("baz.*", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	s.Bind(TopicBinding("", "baz.*", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		wasCalled["baz.*"] <- string(d.Body)
 	}))
 
@@ -124,7 +124,7 @@ func TestHeaders(t *testing.T) {
 		"foo":     "bar",
 	}
 
-	s.Bind(HeadersBinding(h, handler))
+	s.Bind(HeadersBinding("", h, handler))
 
 	stop := startAndWait(s)
 	defer stop()
