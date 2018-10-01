@@ -104,26 +104,35 @@ func TestServerReconnect(t *testing.T) {
 }
 
 func TestServerOnStarted(t *testing.T) {
-	didStart := make(chan struct{})
-	notNills := [4]interface{}{}
+	errs := make(chan string, 4)
 
 	s := NewServer(serverTestURL)
 	s.OnStarted(func(inC, outC *amqp.Connection, inCh, outCh *amqp.Channel) {
-		notNills[0] = inC
-		notNills[1] = outC
-		notNills[2] = inCh
-		notNills[3] = outCh
-		close(didStart)
+		if inC == nil {
+			errs <- "inC was nil"
+		}
+		if outC == nil {
+			errs <- "outC was nil"
+		}
+		if inCh == nil {
+			errs <- "inCh was nil"
+		}
+		if outCh == nil {
+			errs <- "outCh was nil"
+		}
+
+		close(errs)
 	})
 
 	stop := startAndWait(s)
 	defer stop()
 
 	select {
-	case <-didStart:
-		for i := range notNills {
-			NotEqual(t, notNills[i], nil)
+	case e, ok := <-errs:
+		if ok {
+			t.Fatal(e)
 		}
+
 	case <-time.After(time.Second):
 		t.Error("OnStarted was never called")
 	}

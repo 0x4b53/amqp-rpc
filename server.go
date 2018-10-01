@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	uuid "github.com/satori/go.uuid"
@@ -77,6 +78,9 @@ type Server struct {
 	// stopChan channel is used to signal shutdowns when calling Stop(). The
 	// channel will be closed when Stop() is called.
 	stopChan chan struct{}
+
+	// isRunning is 1 when the server is running.
+	isRunning int32
 
 	// errorLog specifies an optional logger for amqp errors, unexpected behaviour etc.
 	// If nil, logging is done via the log package's standard logger.
@@ -157,7 +161,12 @@ func (s *Server) Bind(binding HandlerBinding) {
 // server is always connected.
 func (s *Server) ListenAndServe() {
 	s.responses = make(chan processedRequest)
-	s.stopChan = make(chan struct{})
+	s.stopChan = make(chan struct{}) // Ensure .Stop() can use it.
+
+	if atomic.CompareAndSwapInt32(&s.isRunning, 0, 1) == false {
+		// Already running.
+		panic("Server is already running.")
+	}
 
 	for {
 		err := s.listenAndServe()
@@ -182,6 +191,8 @@ func (s *Server) ListenAndServe() {
 		s.debugLog("server: listener exiting gracefully")
 		break
 	}
+
+	atomic.StoreInt32(&s.isRunning, 0)
 }
 
 func (s *Server) listenAndServe() error {
@@ -209,6 +220,7 @@ func (s *Server) listenAndServe() error {
 	// Setup a WaitGroup for use by consume(). This WaitGroup will be 0
 	// when all consumers are finished consuming messages.
 	consumersWg := sync.WaitGroup{}
+	consumersWg.Add(1) // Sync the waitgroup to this goroutine.
 
 	// consumerTags is used when we later want to tell AMQP that we want to cancel our consumers.
 	consumerTags, err := s.startConsumers(inputCh, &consumersWg)
@@ -218,12 +230,14 @@ func (s *Server) listenAndServe() error {
 
 	// This WaitGroup will reach 0 when the responder() has finished sending all responses.
 	responderWg := sync.WaitGroup{}
+	responderWg.Add(1) // Sync the waitgroup to this goroutine.
+
 	go s.responder(outputCh, &responderWg)
 
 	// Notify everyone that the server has started. Runs sequentially so there
 	// isn't any race conditions when working with the connections or channels.
 	for _, onStarted := range s.onStarteds {
-		onStarted(inputConn, outputConn, inputCh, inputCh)
+		onStarted(inputConn, outputConn, inputCh, outputCh)
 	}
 
 	err = monitorAndWait(
@@ -249,11 +263,13 @@ func (s *Server) listenAndServe() error {
 
 	// 2. We've told amqp to stop delivering messages, now we wait for all
 	// the consumers to finish inflight messages.
+	consumersWg.Done()
 	consumersWg.Wait()
 
 	// 3. Close the responses chan and wait until the consumers are finished.
 	// We might still have responses we want to send.
 	close(s.responses)
+	responderWg.Done()
 	responderWg.Wait()
 
 	// 4. We have no more messages incoming and we've sent all our responses.
@@ -446,5 +462,8 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 // outgoing messages. This method won't wait for server shutdown to complete,
 // you should instead wait for ListenAndServe to exit.
 func (s *Server) Stop() {
+	if atomic.LoadInt32(&s.isRunning) == 0 {
+		return
+	}
 	close(s.stopChan)
 }

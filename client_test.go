@@ -53,8 +53,6 @@ func TestClientReconnect(t *testing.T) {
 	client := NewClient(clientTestURL).WithDialConfig(amqp.Config{Dial: dialer})
 	NotEqual(t, client, nil)
 
-	client.WithDebugLogger(client.errorLog)
-
 	// Force a connection by calling send.
 	_, err := client.Send(NewRequest().WithResponse(false))
 	Equal(t, err, nil)
