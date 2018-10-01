@@ -3,6 +3,7 @@ package amqprpc
 import (
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	uuid "github.com/satori/go.uuid"
@@ -69,11 +70,8 @@ type Client struct {
 	// channel will be closed when Stop() is called.
 	stopChan chan struct{}
 
-	// once is a sync Once which is used to only call ensure running once per
-	// connection. When the runner for the publisher is stopped a new synx.Once
-	// will be created to ensure the function connection and starting the
-	// publisher will be called.
-	once sync.Once
+	// isRunning is 1 when the server is running.
+	isRunning int32
 
 	// errorLog specifies an optional logger for amqp errors, unexpected behaviour etc.
 	// If nil, logging is done via the log package's standard logger.
@@ -111,7 +109,6 @@ func NewClient(url string) *Client {
 		replyToQueueName:   "reply-to-" + uuid.Must(uuid.NewV4()).String(),
 		middlewares:        []ClientMiddlewareFunc{},
 		timeout:            time.Second * 10,
-		once:               sync.Once{},
 		errorLog:           log.Printf,                                  // use the standard logger default.
 		debugLog:           func(format string, args ...interface{}) {}, // don't print anything default.
 	}
@@ -210,21 +207,34 @@ func (c *Client) setDefaults() {
 // the setup if the underlying connection or socket isn't gracefully closed.
 // This will also block until the client is gracefully stopped.
 func (c *Client) runForever(url string) {
-	for {
-		c.debugLog("client: connecting...")
+	if atomic.CompareAndSwapInt32(&c.isRunning, 0, 1) == false {
+		// Already running.
+		return
+	}
 
-		err := c.runOnce(url)
-		if err == nil {
-			c.debugLog("client: finished gracefully")
-			break
+	c.stopChan = make(chan struct{})
+
+	go func() {
+		for {
+			c.debugLog("client: connecting...")
+
+			err := c.runOnce(url)
+			if err == nil {
+				c.debugLog("client: finished gracefully")
+				break
+			}
+
+			c.errorLog("client: got error: %s, will reconnect in %v second(s)", err, 0.5)
+			time.Sleep(500 * time.Millisecond)
 		}
 
-		c.errorLog("client: got error: %s, will reconnect in %v second(s)", err, 0.5)
-		time.Sleep(500 * time.Millisecond)
-	}
+		// Ensure we can start again.
+		atomic.StoreInt32(&c.isRunning, 0)
+	}()
+
 }
 
-// runForever will connect amqp, setup all the amqp channels, run the publisher
+// runOnce will connect amqp, setup all the amqp channels, run the publisher
 // and run the replies consumer. The method will also return the underlying
 // amqp error if the underlying connection or socket isn't gracefully closed.
 // It will also block until the connection is gone.
@@ -250,7 +260,7 @@ func (c *Client) runOnce(url string) error {
 		return err
 	}
 
-	go c.runPublisher(outputCh)
+	go c.runPublisher(outputCh, c.stopChan)
 
 	err = monitorAndWait(
 		c.stopChan,
@@ -263,10 +273,6 @@ func (c *Client) runOnce(url string) error {
 		return err
 	}
 
-	// If the user calls Stop() but then starts to use the client again we must
-	// ensure that a new connection will be setup. We do this by creating a new
-	// sync.Once so the method runForever will be called again.
-	c.once = sync.Once{}
 	return nil
 }
 
@@ -274,12 +280,12 @@ func (c *Client) runOnce(url string) error {
 // amqp exchange. The method will stop consuming if the underlying amqp channel
 // is closed for any reason, and when this happens the messages will be put back
 // in chan requests unless we have retried to many times.
-func (c *Client) runPublisher(outChan *amqp.Channel) {
+func (c *Client) runPublisher(outChan *amqp.Channel, stopChan chan struct{}) {
 	c.debugLog("client: running publisher...")
 
 	for {
 		select {
-		case <-c.stopChan:
+		case <-stopChan:
 			c.debugLog("client: publisher stopped after stop chan was closed")
 			return
 
@@ -387,7 +393,8 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 
 			c.debugLog("client: forwarding reply %s", response.CorrelationId)
 
-			replyChan <- &response
+			responseCopy := response
+			replyChan <- &responseCopy
 		}
 
 		c.debugLog("client: replies consumer is done")
@@ -404,16 +411,8 @@ func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 }
 
 func (c *Client) send(r *Request) (*amqp.Delivery, error) {
-	// Ensure that the publisher is running. The Once is recreated on each
-	// disconnect and since it has it's own mutex we don't need any other
-	// locks.
-	c.once.Do(
-		func() {
-			c.stopChan = make(chan struct{})
-
-			go c.runForever(c.url)
-		},
-	)
+	// Ensure that the publisher is running.
+	c.runForever(c.url)
 
 	// This is where we get the responses back.
 	// If this request doesn't want a reply back (by setting Reply to false)
@@ -473,5 +472,8 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 // outgoing messages. This method won't wait for server shutdown to complete,
 // you should instead wait for ListenAndServe to exit.
 func (c *Client) Stop() {
+	if atomic.LoadInt32(&c.isRunning) != 1 {
+		return
+	}
 	close(c.stopChan)
 }

@@ -1,7 +1,8 @@
 package amqprpc
 
 import (
-	"bytes"
+	"io"
+	"io/ioutil"
 	"log"
 	"testing"
 	"time"
@@ -10,30 +11,51 @@ import (
 )
 
 func TestServerLogging(t *testing.T) {
-	buf := bytes.Buffer{}
-	logger := log.New(&buf, "TEST", log.LstdFlags)
+	reader, writer := io.Pipe()
 
-	s := NewServer(serverTestURL)
-	s.WithDebugLogger(logger.Printf)
-	s.WithErrorLogger(logger.Printf)
+	go func() {
+		logger := log.New(writer, "TEST", log.LstdFlags)
 
-	stop := startAndWait(s)
-	defer stop()
+		s := NewServer(serverTestURL)
+		s.WithDebugLogger(logger.Printf)
+		s.WithErrorLogger(logger.Printf)
 
-	NotEqual(t, buf.String(), "")
-	MatchRegex(t, buf.String(), "^TEST")
+		stop := startAndWait(s)
+		stop()
+
+		writer.Close()
+	}()
+
+	buf, err := ioutil.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	NotEqual(t, string(buf), "")
+	MatchRegex(t, string(buf), "^TEST")
 }
 
 func TestClientLogging(t *testing.T) {
-	buf := bytes.Buffer{}
-	logger := log.New(&buf, "TEST", log.LstdFlags)
+	reader, writer := io.Pipe()
 
-	c := NewClient("amqp://guest:guest@localhost:5672/")
-	c.WithDebugLogger(logger.Printf)
-	c.WithErrorLogger(logger.Printf)
+	go func() {
+		logger := log.New(writer, "TEST", log.LstdFlags)
 
-	c.Send(NewRequest().WithRoutingKey("foobar").WithTimeout(time.Millisecond))
+		c := NewClient("amqp://guest:guest@localhost:5672/")
+		c.WithDebugLogger(logger.Printf)
+		c.WithErrorLogger(logger.Printf)
 
-	NotEqual(t, buf.String(), "")
-	MatchRegex(t, buf.String(), "^TEST")
+		c.Send(NewRequest().WithRoutingKey("foobar").WithTimeout(time.Millisecond))
+		c.Stop()
+
+		writer.Close()
+	}()
+
+	buf, err := ioutil.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	NotEqual(t, string(buf), "")
+	MatchRegex(t, string(buf), "^TEST")
 }

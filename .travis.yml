@@ -1,6 +1,6 @@
 language: go
 go:
-  - "1.10"
+  - "1.11"
 
 services:
   - rabbitmq
@@ -20,7 +20,7 @@ before_script:
   - ./cc-test-reporter before-build
 
 script:
-  - go test -v -coverprofile c.out ./...
+  - go test -race -v -coverprofile c.out ./...
 
 after_script:
   - ./cc-test-reporter after-build --exit-code $TRAVIS_TEST_RESULT
