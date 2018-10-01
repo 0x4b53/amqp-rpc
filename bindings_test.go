@@ -130,7 +130,7 @@ func TestHeaders(t *testing.T) {
 	defer stop()
 
 	// Ensure 'somewhere.*' matches 'somewhere.there'.
-	response, err := c.Send(NewRequest().WithExchange("amq.headers").WithHeaders(amqp.Table{"foo": "bar"}))
+	response, err := c.Send(NewRequest().WithExchange("amq.match").WithHeaders(amqp.Table{"foo": "bar"}))
 
 	Equal(t, err, nil)
 	Equal(t, response.Body, []byte("Hello, world"))

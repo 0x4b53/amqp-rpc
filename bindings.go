@@ -57,11 +57,11 @@ func TopicBinding(queueName, routingKey string, handler HandlerFunc) HandlerBind
 
 // HeadersBinding returns a HandlerBinding to use for header exchanges that will
 // match on specific headers. The heades are specified as an amqp.Table. The
-// default exchange amq.headers will be used.
+// default exchange amq.match will be used.
 func HeadersBinding(queueName string, headers amqp.Table, handler HandlerFunc) HandlerBinding {
 	return HandlerBinding{
 		QueueName:    queueName,
-		ExchangeName: "amq.headers",
+		ExchangeName: "amq.match",
 		ExchangeType: "headers",
 		RoutingKey:   "",
 		BindHeaders:  headers,
