@@ -34,17 +34,35 @@ type Request struct {
 	// context.Background()
 	Context context.Context
 
-	// middlewares holds slice of middlewares to run before or after the client
 	// sends a request. This is only executed for the specific request.
 	middlewares []ClientMiddlewareFunc
 
-	// These channels are used by the repliesConsumer and correlcationIdMapping and will send the
-	// replies to this Request here.
+	// These channels are used by the repliesConsumer and correlcationIdMapping
+	// and will send the replies to this Request here. If we get a client error
+	// (e.g we can't publish) it will end up on the ErrChan.
 	response chan *amqp.Delivery
-	errChan  chan error // If we get a client error (e.g we can't publish) it will end up here.
+	errChan  chan error
 
 	// the number of times that the publisher should retry.
 	numRetries int
+
+	// stream is a boolean telling if WithStream was used. By using this option
+	// we won't read from the response channel but let the user do it by
+	// calling Stream(). We also don't remove any mapping to a correlation ID,
+	// this is done when the user calls EndStream.
+	stream bool
+
+	// closeFunc is the function to call when ending the stream. Since it's
+	// created while sending a request the function already stores all local
+	// variables required. The function set in the client will remove IDs from
+	// the correlation ID mapping, close the response channel, set streaming to
+	// false and reset the history of correlation IDs.
+	closeFunc func()
+
+	// correlationID is a history list of all correlation IDs generated (and
+	// sent) for a given request. This is used to clear the correlation ID
+	// mapping when the user is done with a streaming request.
+	correlationIDs []string
 }
 
 // NewRequest will generate a new request to be published. The default request
@@ -132,6 +150,28 @@ func (r *Request) WithBody(b string) *Request {
 	return r
 }
 
+// WithStream will return the response channel in addition to the *Request.
+// After this function is called the client will not close the channel on the
+// first response but continue to stream responses on the channel until it's
+// closed.
+func (r *Request) WithStream() *Request {
+	r.stream = true
+
+	return r
+}
+
+// Stream returns the response channel which won't be closed when WithStream is
+// used.
+func (r *Request) Stream() chan *amqp.Delivery {
+	return r.response
+}
+
+// EndStream will close the response channel on the request and remove all
+// related mappings used for the channel.
+func (r *Request) EndStream() {
+	r.closeFunc()
+}
+
 // Write will write the response Body of the amqp.Publishing.
 // It is safe to call Write multiple times.
 func (r *Request) Write(p []byte) (int, error) {
@@ -148,10 +188,10 @@ func (r *Request) AddMiddleware(m ClientMiddlewareFunc) *Request {
 	return r
 }
 
-// startTimeout will start the timeout counter by using Duration.After.
+// StartTimeout will start the timeout counter by using Duration.After.
 // Is will also set the Expiration field for the Publishing so that amqp won't
 // hold on to the message in the queue after the timeout has happened.
-func (r *Request) startTimeout() <-chan time.Time {
+func (r *Request) StartTimeout() <-chan time.Time {
 	r.Publishing.Expiration = fmt.Sprintf("%d", r.Timeout.Nanoseconds()/1e6)
 
 	return time.After(r.Timeout)

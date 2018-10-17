@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/streadway/amqp"
+	"github.com/stretchr/testify/assert"
 	. "gopkg.in/go-playground/assert.v1"
 )
 
@@ -127,6 +129,72 @@ func TestRequestContext(t *testing.T) {
 	c.Send(r)
 
 	Equal(t, changeThroughMiddleware, true)
+}
+
+func TestStream(t *testing.T) {
+	var (
+		url        = "amqp://guest:guest@localhost:5672/"
+		assert     = assert.New(t)
+		numServers = 2
+	)
+
+	// Create two servers on a fanout exchange that will both reply.
+	for range make([]int, numServers) {
+		s := NewServer(url)
+		s.Bind(FanoutBinding("myexchange", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+			fmt.Fprintf(rw, "Responding")
+		}))
+
+		defer startAndWait(s)()
+	}
+
+	client := NewClient(url)
+
+	request := NewRequest().
+		WithExchange("myexchange").
+		WithStream()
+
+	loopFunc := func(shouldTimeout bool) {
+		for range make([]int, numServers) {
+			select {
+			case d, _ := <-request.Stream():
+				assert.NotEqual(nil, d)
+				assert.Equal("Responding", string(d.Body))
+			case <-time.After(100 * time.Millisecond):
+				if shouldTimeout {
+					assert.Equal(nil, nil, "no stream recevied as expected")
+				} else {
+					assert.Fail("did not get a response")
+				}
+			}
+		}
+	}
+
+	response, err := client.Send(request)
+	assert.Equal(true, response == nil)
+	assert.Equal(nil, err)
+
+	loopFunc(false)
+
+	// Possible to re-use request.
+	response, err = client.Send(request)
+	assert.Equal(true, response == nil)
+	assert.Equal(nil, err)
+
+	loopFunc(false)
+
+	assert.Equal(2, len(request.correlationIDs), "after two send we've got two corr IDs")
+
+	// End session
+	request.EndStream()
+
+	assert.Equal(0, len(request.correlationIDs), "after endign the stream we cleared the history")
+
+	response, err = client.Send(request)
+	assert.Equal(true, response != nil, "we got a response from Send")
+	assert.Equal(nil, err)
+
+	loopFunc(true)
 }
 
 func myMiddle(next SendFunc) SendFunc {

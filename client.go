@@ -309,6 +309,10 @@ func (c *Client) runPublisher(outChan *amqp.Channel, stopChan chan struct{}) {
 				request.Publishing,
 			)
 
+			c.mu.Lock()
+			corrID := request.Publishing.CorrelationId
+			c.mu.Unlock()
+
 			if err != nil {
 				// Close the outChan to ensure reconnect.
 				outChan.Close()
@@ -319,20 +323,20 @@ func (c *Client) runPublisher(outChan *amqp.Channel, stopChan chan struct{}) {
 					// will get an error back and should handle this manually!
 					c.errorLog(
 						"client: could not publish %s, giving up: %s",
-						request.Publishing.CorrelationId, err.Error(),
+						corrID, err.Error(),
 					)
 					request.errChan <- err
 				} else {
 					c.errorLog(
 						"client: could not publish %s, retrying: %s",
-						request.Publishing.CorrelationId, err.Error(),
+						corrID, err.Error(),
 					)
 
 					request.numRetries++
 					c.requests <- request
 				}
 
-				c.errorLog("client: publisher stopped because of error, %s", request.Publishing.CorrelationId)
+				c.errorLog("client: publisher stopped because of error, %s", corrID)
 				return
 			}
 
@@ -342,7 +346,7 @@ func (c *Client) runPublisher(outChan *amqp.Channel, stopChan chan struct{}) {
 				request.response <- nil
 			}
 
-			c.debugLog("client: did publish %s", request.Publishing.CorrelationId)
+			c.debugLog("client: did publish %s", corrID)
 		}
 	}
 }
@@ -417,24 +421,39 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// This is where we get the responses back.
 	// If this request doesn't want a reply back (by setting Reply to false)
 	// this channel will get a nil message after publisher has Published the
-	// message.
-	r.response = make(chan *amqp.Delivery)
-	correlationID := uuid.Must(uuid.NewV4()).String()
-
-	// Set the correlation id on the publishing.
-	r.Publishing.CorrelationId = correlationID
+	// message. If the request has been used for streaming and is being reused
+	// we might already have a response channel which we don't want to
+	// override.
+	if r.response == nil {
+		r.response = make(chan *amqp.Delivery)
+	}
 
 	// This is where we get any (client) errors if they occure before we could
 	// even send the request.
 	r.errChan = make(chan error)
 
+	correlationID := uuid.Must(uuid.NewV4()).String()
+
+	c.mu.Lock()
+	// Set the correlation id on the publishing.
+	r.Publishing.CorrelationId = correlationID
+
 	// Ensure the responseConsumer will know which chan to forward the response
 	// to when the response arrives.
-	c.mu.Lock()
 	c.correlationMapping[correlationID] = r.response
 	c.mu.Unlock()
 
 	defer func() {
+		if r.stream {
+			// Store the correlation ID in the history list for the request object.
+			// This is later used to remove them from the correlationMapping when
+			// ending a streamed request.
+			r.correlationIDs = append(r.correlationIDs, correlationID)
+			r.closeFunc = generateCloseFunc(c, r)
+
+			return
+		}
+
 		c.mu.Lock()
 		delete(c.correlationMapping, correlationID)
 		c.mu.Unlock()
@@ -447,11 +466,18 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	}
 
 	// start the timeout counting now.
-	timeoutChan := r.startTimeout()
+	timeoutChan := r.StartTimeout()
 
 	c.debugLog("client: queuing request %s", correlationID)
 	c.requests <- r
 	c.debugLog("client: waiting for reply of %s", correlationID)
+
+	// If the request was created for streaming we just return if we had no
+	// errors. Ignore timeouts, this must be handled by the user.
+	// TODO: What about errors?
+	if r.stream {
+		return nil, nil
+	}
 
 	// All responses are published on the requests response channel. Hang here
 	// until a response is received and close the channel when it's read.
@@ -465,6 +491,22 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	case delivery := <-r.response:
 		c.debugLog("client: got delivery for %s", correlationID)
 		return delivery, nil
+	}
+}
+
+func generateCloseFunc(c *Client, r *Request) func() {
+	return func() {
+		for _, cID := range r.correlationIDs {
+			c.mu.Lock()
+			delete(c.correlationMapping, cID)
+			c.mu.Unlock()
+		}
+
+		close(r.response)
+
+		r.stream = false
+		r.response = nil
+		r.correlationIDs = []string{}
 	}
 }
 
