@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	. "gopkg.in/go-playground/assert.v1"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestServerLogging(t *testing.T) {
@@ -31,8 +31,8 @@ func TestServerLogging(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	NotEqual(t, string(buf), "")
-	MatchRegex(t, string(buf), "^TEST")
+	assert.NotEqual(t, "", string(buf), "buffer contains logs")
+	assert.Contains(t, string(buf), "TEST", "logs are prefixed with TEST")
 }
 
 func TestClientLogging(t *testing.T) {
@@ -56,6 +56,6 @@ func TestClientLogging(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	NotEqual(t, string(buf), "")
-	MatchRegex(t, string(buf), "^TEST")
+	assert.NotEqual(t, "", string(buf), "buffer contains logs")
+	assert.Contains(t, string(buf), "TEST", "logs are prefixed with TEST")
 }

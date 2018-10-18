@@ -8,14 +8,17 @@ import (
 	"time"
 
 	"github.com/streadway/amqp"
-	. "gopkg.in/go-playground/assert.v1"
+	"github.com/stretchr/testify/assert"
 )
 
 var bindingsTestURL = "amqp://guest:guest@localhost:5672"
 
 func TestFanout(t *testing.T) {
-	var timesCalled int64
-	var called = make(chan struct{})
+	var (
+		assert      = assert.New(t)
+		timesCalled int64
+		called      = make(chan struct{})
+	)
 
 	fanoutHandler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		atomic.AddInt64(&timesCalled, 1)
@@ -44,8 +47,8 @@ func TestFanout(t *testing.T) {
 
 	}
 
-	Equal(t, err, nil)
-	Equal(t, atomic.LoadInt64(&timesCalled), int64(3))
+	assert.Nil(err, "no errors occurred")
+	assert.Equal(atomic.LoadInt64(&timesCalled), int64(3), "endpoint called 3 times")
 }
 
 func TestTopic(t *testing.T) {
@@ -92,7 +95,7 @@ func TestTopic(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.request, func(t *testing.T) {
 			_, err := c.Send(NewRequest().WithRoutingKey(tc.request).WithBody(tc.request).WithExchange("amq.topic").WithResponse(false))
-			Equal(t, err, nil)
+			assert.Nil(t, err, nil, "no errors sending topic request")
 
 			for key, expectCalled := range tc.called {
 				select {
@@ -100,7 +103,7 @@ func TestTopic(t *testing.T) {
 					if expectCalled != true {
 						t.Errorf("%s WAS called on %s with body %s", key, tc.request, body)
 					}
-					Equal(t, body, tc.request)
+					assert.Equal(t, tc.request, body, "correct request body")
 				case <-time.After(10 * time.Millisecond):
 					if expectCalled == true {
 						t.Errorf("%s NOT called on %s", key, tc.request)
@@ -132,6 +135,6 @@ func TestHeaders(t *testing.T) {
 	// Ensure 'somewhere.*' matches 'somewhere.there'.
 	response, err := c.Send(NewRequest().WithExchange("amq.match").WithHeaders(amqp.Table{"foo": "bar"}))
 
-	Equal(t, err, nil)
-	Equal(t, response.Body, []byte("Hello, world"))
+	assert.Nil(t, err, "no errors occurred")
+	assert.Equal(t, []byte("Hello, world"), response.Body, "correct request body")
 }

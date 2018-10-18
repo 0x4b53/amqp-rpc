@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/streadway/amqp"
-	. "gopkg.in/go-playground/assert.v1"
+	"github.com/stretchr/testify/assert"
 )
 
 var serverTestURL = "amqp://guest:guest@localhost:5672/"
@@ -19,7 +19,7 @@ func TestSendWithReply(t *testing.T) {
 		TLSClientConfig: cert.TLSConfig(),
 	})
 
-	NotEqual(t, s.dialconfig.TLSClientConfig, nil)
+	assert.NotNil(t, s.dialconfig.TLSClientConfig, "dialconfig on server is set")
 
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
@@ -32,8 +32,8 @@ func TestSendWithReply(t *testing.T) {
 	request := NewRequest().WithRoutingKey("myqueue").WithBody("this is a message")
 	reply, err := c.Send(request)
 
-	Equal(t, err, nil)
-	Equal(t, reply.Body, []byte("Got message: this is a message"))
+	assert.Nil(t, err, "client exist")
+	assert.Equal(t, []byte("Got message: this is a message"), reply.Body, "got reply")
 }
 
 func TestMiddleware(t *testing.T) {
@@ -66,14 +66,14 @@ func TestMiddleware(t *testing.T) {
 	request := NewRequest().WithRoutingKey("allowed")
 	reply, err := c.Send(request)
 
-	Equal(t, err, nil)
-	Equal(t, reply.Body, []byte("this is allowed"))
+	assert.Nil(t, err, "no error")
+	assert.Equal(t, []byte("this is allowed"), reply.Body, "allowed middleware callable")
 
 	request = NewRequest().WithRoutingKey("denied")
 	reply, err = c.Send(request)
 
-	Equal(t, err, nil)
-	Equal(t, reply.Body, []byte("routing key 'denied' is not allowed"))
+	assert.Nil(t, err, "no error")
+	assert.Equal(t, []byte("routing key 'denied' is not allowed"), reply.Body, "denied middleware not callable")
 }
 
 func TestServerReconnect(t *testing.T) {
@@ -94,12 +94,12 @@ func TestServerReconnect(t *testing.T) {
 		message := fmt.Sprintf("this is message %v", i)
 		request := NewRequest().WithRoutingKey("myqueue").WithBody(message)
 		reply, err := c.Send(request)
-		Equal(t, err, nil)
+		assert.Nil(t, err, "no error")
 
 		conn := <-connections
 		conn.Close()
 
-		Equal(t, reply.Body, []byte(fmt.Sprintf("Got message: %s", message)))
+		assert.Equal(t, []byte(fmt.Sprintf("Got message: %s", message)), reply.Body, "message received after reconnect")
 	}
 }
 
@@ -155,7 +155,7 @@ func TestStopWhenStarting(t *testing.T) {
 	select {
 	case <-done:
 		// The done channel was closed!
-		Equal(t, nil, nil)
+		assert.Nil(t, nil, "no error")
 	case <-time.After(10 * time.Second):
 		// No success within 10 seconds
 		t.Error("Didn't succeed to close server")

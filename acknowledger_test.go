@@ -3,7 +3,7 @@ package amqprpc
 import (
 	"testing"
 
-	. "gopkg.in/go-playground/assert.v1"
+	"github.com/stretchr/testify/assert"
 )
 
 type mockAcknowledger struct {
@@ -28,30 +28,33 @@ func (ma *mockAcknowledger) Reject(tag uint64, requeue bool) error {
 }
 
 func TestAckAwareChannel(t *testing.T) {
-	ma := mockAcknowledger{}
-	aac := ackAwareChannel{ch: &ma, handled: false}
+	var (
+		assert = assert.New(t)
+		ma     = mockAcknowledger{}
+		aac    = ackAwareChannel{ch: &ma, handled: false}
+	)
 
 	// 1
 	aac.Ack(1, false)
 
-	Equal(t, aac.handled, true)
-	Equal(t, ma.ack, 1)
+	assert.Equal(true, aac.handled, "delivery handled")
+	assert.Equal(1, ma.ack, "1 delivery processed")
 
 	aac.handled = false
 
 	// 2
 	aac.Nack(2, false, false)
 
-	Equal(t, aac.handled, true)
-	Equal(t, ma.nack, 1)
+	assert.Equal(true, aac.handled, "delivery handled")
+	assert.Equal(1, ma.nack, "1 delivery processed")
 
 	aac.handled = false
 
 	// 3
 	aac.Reject(3, false)
 
-	Equal(t, aac.handled, true)
-	Equal(t, ma.reject, 1)
+	assert.Equal(true, aac.handled, "delivery handled")
+	assert.Equal(1, ma.reject, "1 delivery rejected")
 
 	aac.handled = false
 }
