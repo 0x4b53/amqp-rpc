@@ -5,47 +5,43 @@ import (
 	"testing"
 
 	"github.com/streadway/amqp"
-	. "gopkg.in/go-playground/assert.v1"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestResponseWriter(t *testing.T) {
+	assert := assert.New(t)
+
 	rw := &ResponseWriter{
 		publishing: &amqp.Publishing{},
 	}
 
-	// The default values are false.
-	Equal(t, rw.immediate, false)
-	Equal(t, rw.mandatory, false)
+	assert.Equal(false, rw.immediate, "immediate starts false")
+	assert.Equal(false, rw.mandatory, "mandatory starts false")
 
-	// Setting true reflects internally.
 	rw.Immediate(true)
 	rw.Mandatory(true)
-	Equal(t, rw.immediate, true)
-	Equal(t, rw.mandatory, true)
 
-	// Setting false reflects internally.
+	assert.Equal(true, rw.immediate, "immediate is changed to true")
+	assert.Equal(true, rw.mandatory, "mandatory is changed to true")
+
 	rw.Immediate(false)
 	rw.Mandatory(false)
-	Equal(t, rw.immediate, false)
-	Equal(t, rw.mandatory, false)
 
-	// Writing to it reflects on the body.
+	assert.Equal(false, rw.immediate, "immediate are changed to false")
+	assert.Equal(false, rw.mandatory, "mandatory is changed to false")
+
 	fmt.Fprint(rw, "Foo")
-	Equal(t, rw.Publishing().Body, []byte("Foo"))
+	assert.Equal([]byte("Foo"), rw.Publishing().Body, "writing to response writer is reflected in the body")
 
-	// Writing multiple times is OK.
 	fmt.Fprint(rw, "Bar")
-	Equal(t, rw.Publishing().Body, []byte("FooBar"))
+	assert.Equal([]byte("FooBar"), rw.Publishing().Body, "writing to response writer multiple times is reflected in the body")
 
-	// Writing header will set the header of the publishing
 	rw.WriteHeader("some-header", "writing")
-	Equal(t, rw.Publishing().Headers["some-header"], "writing")
+	assert.Equal("writing", rw.Publishing().Headers["some-header"], "writing headers will set the headers of the publishing")
 
-	// Overwrite works
 	rw.WriteHeader("some-header", "writing-again")
-	Equal(t, rw.Publishing().Headers["some-header"], "writing-again")
+	assert.Equal("writing-again", rw.Publishing().Headers["some-header"], "overwriting headers will set the headers of the publishing")
 
-	// Writing other types than strings works
 	rw.WriteHeader("some-header", 1)
-	Equal(t, rw.Publishing().Headers["some-header"], 1)
+	assert.Equal(1, rw.Publishing().Headers["some-header"], "writing other types than s t rings to header works")
 }

@@ -3,18 +3,20 @@ package amqprpc
 import (
 	"testing"
 
-	. "gopkg.in/go-playground/assert.v1"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestDialer(t *testing.T) {
+	assert := assert.New(t)
+
 	conn, err := DefaultDialer("tcp", "gone.local")
-	Equal(t, conn, nil)
-	NotEqual(t, err, nil)
+	assert.Nil(conn, "no connection for bad host")
+	assert.NotNil(err, "errors occurred")
 
 	conn, err = DefaultDialer("tcp", "localhost:5672")
-	Equal(t, err, nil)
-	NotEqual(t, conn, nil)
+	assert.Nil(err, "no error for correct hos")
+	assert.NotNil(conn, "connection exist")
 
 	conn = GetConnection()
-	NotEqual(t, conn, nil)
+	assert.NotNil(conn, "connection can be retrieved")
 }

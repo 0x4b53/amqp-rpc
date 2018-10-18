@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	. "gopkg.in/go-playground/assert.v1"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestTLS(t *testing.T) {
@@ -17,20 +17,20 @@ func TestTLS(t *testing.T) {
 		CA:   "./temp-ca.pem",
 	}
 
-	Equal(t, c.Cert, "./temp-cert.pem")
+	assert.Equal(t, "./temp-cert.pem", c.Cert, "certificate defined")
 
 	cfg := c.TLSConfig()
 
-	Equal(t, cfg.RootCAs == nil, false)
-	Equal(t, cfg == nil, false)
-	Equal(t, len(cfg.Certificates), 1)
+	assert.NotNil(t, cfg.RootCAs, "root CAs exist")
+	assert.NotNil(t, cfg, "config is not nil")
+	assert.Equal(t, 1, len(cfg.Certificates), "one certificate parsed")
 
 	c = Certificates{}
 
 	cfg = c.TLSConfig()
 
-	Equal(t, cfg == nil, false)
-	Equal(t, len(cfg.Certificates), 0)
+	assert.NotNil(t, cfg, "successfully generate TLSConfig")
+	assert.Equal(t, 0, len(cfg.Certificates), "no certificates for empty config")
 }
 
 func createFile(path, content string) {

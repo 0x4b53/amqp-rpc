@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/streadway/amqp"
-	. "gopkg.in/go-playground/assert.v1"
+	"github.com/stretchr/testify/assert"
 )
 
 func traceClientMiddleware(ID int, b *bytes.Buffer) ClientMiddlewareFunc {
@@ -23,8 +23,9 @@ func traceClientMiddleware(ID int, b *bytes.Buffer) ClientMiddlewareFunc {
 
 func TestClientMiddlewareChain(t *testing.T) {
 	var (
-		req = NewRequest()
-		b   = bytes.Buffer{}
+		assert = assert.New(t)
+		req    = NewRequest()
+		b      = bytes.Buffer{}
 	)
 
 	mw := ClientMiddlewareChain(
@@ -41,15 +42,15 @@ func TestClientMiddlewareChain(t *testing.T) {
 
 	res, err := mw(req)
 
-	Equal(t, err, nil)
-	NotEqual(t, res, nil)
-	Equal(t, b.Bytes(), []byte("12X21"))
+	assert.Nil(err, "no errors chaining middlewares")
+	assert.NotNil(res, "result is not nil after passing through middlewares")
+	assert.Equal([]byte("12X21"), b.Bytes(), "middlewares executed in correct order")
 }
 
 func TestClientClientAddMiddlewares(t *testing.T) {
 	c := NewClient("")
 
-	Equal(t, len(c.middlewares), 0)
+	assert.Equal(t, 0, len(c.middlewares), "zero middlewares at start")
 
 	c.AddMiddleware(
 		func(n SendFunc) SendFunc {
@@ -59,5 +60,5 @@ func TestClientClientAddMiddlewares(t *testing.T) {
 		},
 	)
 
-	Equal(t, len(c.middlewares), 1)
+	assert.Equal(t, 1, len(c.middlewares), "adding middlewares working")
 }

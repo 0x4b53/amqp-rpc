@@ -6,11 +6,14 @@ import (
 	"testing"
 
 	"github.com/streadway/amqp"
-	. "gopkg.in/go-playground/assert.v1"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRequest(t *testing.T) {
-	var url = "amqp://guest:guest@localhost:5672/"
+	var (
+		assert = assert.New(t)
+		url    = "amqp://guest:guest@localhost:5672/"
+	)
 
 	s := NewServer(url)
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
@@ -21,7 +24,7 @@ func TestRequest(t *testing.T) {
 	defer stop()
 
 	client := NewClient(url)
-	NotEqual(t, client, nil)
+	assert.NotNil(t, client, "client exist")
 
 	// Test simple form.
 	request := NewRequest().
@@ -30,8 +33,8 @@ func TestRequest(t *testing.T) {
 		WithBody("hello request")
 
 	response, err := client.Send(request)
-	Equal(t, err, nil)
-	Equal(t, response.Body, []byte("Got message: hello request"))
+	assert.Nil(err, "no errors sending request")
+	assert.Equal([]byte("Got message: hello request"), response.Body, "correct body returned")
 
 	// Test with exchange, headers, content type nad raw body.
 	request = NewRequest().
@@ -43,8 +46,8 @@ func TestRequest(t *testing.T) {
 		WithBody(`{"foo":"bar"}`)
 
 	response, err = client.Send(request)
-	Equal(t, err, nil)
-	Equal(t, response, nil)
+	assert.Nil(err, "no errors sending request")
+	assert.Nil(response, "no body returned when not waiting for replies")
 
 	request = NewRequest().
 		WithRoutingKey("myqueue").
@@ -52,70 +55,62 @@ func TestRequest(t *testing.T) {
 		AddMiddleware(myMiddle)
 
 	response, err = client.Send(request)
-	Equal(t, err, nil)
-	NotEqual(t, response.Body, []byte("Got message: original message"))
-	Equal(t, response.Body, []byte("Got message: middleware message"))
+	assert.Nil(err, "no errors sending request")
+	assert.NotNil(response.Body, "body exist")
+	assert.Equal([]byte("Got message: middleware message"), response.Body, "correct body returned")
 }
 
 func TestRequestWriting(t *testing.T) {
 	r := NewRequest().WithRoutingKey("foo")
 
-	Equal(t, len(r.Publishing.Body), 0)
-	Equal(t, len(r.Publishing.Headers), 0)
+	assert.Equal(t, 0, len(r.Publishing.Body), "no body at start")
+	assert.Equal(t, 0, len(r.Publishing.Headers), "no headers at start")
 
 	t.Run("body writing", func(tt *testing.T) {
 		fmt.Fprintf(r, "my body is foo")
-		Equal(tt, r.Publishing.Body, []byte("my body is foo"))
+		assert.Equal(tt, []byte("my body is foo"), r.Publishing.Body, "correct body written")
 
 		fmt.Fprintf(r, "\nand bar")
-		Equal(tt, r.Publishing.Body, []byte("my body is foo\nand bar"))
+		assert.Equal(tt, []byte("my body is foo\nand bar"), r.Publishing.Body, "correct body written")
 
 		r.WithBody("overwrite")
-		Equal(tt, r.Publishing.Body, []byte("overwrite"))
+		assert.Equal(tt, []byte("overwrite"), r.Publishing.Body, "correct body written")
 
 		fmt.Fprintf(r, "written")
-		Equal(tt, r.Publishing.Body, []byte("overwritewritten"))
+		assert.Equal(tt, []byte("overwritewritten"), r.Publishing.Body, "correct body written")
 	})
 
 	t.Run("header writing", func(tt *testing.T) {
 		r.WriteHeader("foo", "bar")
-		Equal(tt, r.Publishing.Headers, amqp.Table{
-			"foo": "bar",
-		})
+		assert.Equal(tt, amqp.Table{"foo": "bar"}, r.Publishing.Headers, "correct headers written")
 
 		r.WriteHeader("baz", "baa")
-		Equal(tt, r.Publishing.Headers, amqp.Table{
-			"foo": "bar",
-			"baz": "baa",
-		})
+		assert.Equal(tt, amqp.Table{"foo": "bar", "baz": "baa"}, r.Publishing.Headers, "correct headers written")
 
-		r.WithHeaders(amqp.Table{
-			"overwritten": "headers",
-		})
-		Equal(tt, r.Publishing.Headers, amqp.Table{
-			"overwritten": "headers",
-		})
+		r.WithHeaders(amqp.Table{"overwritten": "headers"})
+
+		assert.Equal(tt, amqp.Table{"overwritten": "headers"}, r.Publishing.Headers, "correct headers written")
 
 		r.WriteHeader("baz", "foo")
-		Equal(tt, r.Publishing.Headers, amqp.Table{
-			"overwritten": "headers",
-			"baz":         "foo",
-		})
+		assert.Equal(tt, amqp.Table{"overwritten": "headers", "baz": "foo"}, r.Publishing.Headers, "correct headers written")
 	})
 }
 
 func TestRequestContext(t *testing.T) {
+	type ctxtype string
+
+	ctxKey := ctxtype("charger")
 	changeThroughMiddleware := false
 
 	myMiddle := func(next SendFunc) SendFunc {
 		return func(r *Request) (*amqp.Delivery, error) {
-			changeThroughMiddleware = r.Context.Value("changer").(bool)
+			changeThroughMiddleware = r.Context.Value(ctxKey).(bool)
 
 			return next(r)
 		}
 	}
 
-	ctx := context.WithValue(context.Background(), "changer", true)
+	ctx := context.WithValue(context.Background(), ctxKey, true)
 	r := NewRequest().WithContext(ctx)
 
 	c := NewClient("").AddMiddleware(myMiddle)
@@ -126,7 +121,7 @@ func TestRequestContext(t *testing.T) {
 
 	c.Send(r)
 
-	Equal(t, changeThroughMiddleware, true)
+	assert.Equal(t, true, changeThroughMiddleware, "requesst changed through middleware")
 }
 
 func myMiddle(next SendFunc) SendFunc {

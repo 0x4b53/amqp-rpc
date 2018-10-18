@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/streadway/amqp"
-	. "gopkg.in/go-playground/assert.v1"
+	"github.com/stretchr/testify/assert"
 )
 
 func traceServerMiddleware(ID int) ServerMiddlewareFunc {
@@ -44,8 +44,8 @@ func TestServerMiddlewareChain(t *testing.T) {
 	}
 
 	handler(context.Background(), rWriter, amqp.Delivery{})
-	Equal(t, string(rWriter.Publishing().Body), "1234X4321")
+	assert.Equal(t, "1234X4321", string(rWriter.Publishing().Body), "middlewares are called in correct order")
 
 	unevenHandler(context.Background(), rWriter, amqp.Delivery{})
-	Equal(t, string(rWriter.Publishing().Body), "1234X4321123Y321")
+	assert.Equal(t, "1234X4321123Y321", string(rWriter.Publishing().Body), "all middlewares are called")
 }

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/streadway/amqp"
-	. "gopkg.in/go-playground/assert.v1"
+	"github.com/stretchr/testify/assert"
 )
 
 var clientTestURL = "amqp://guest:guest@localhost:5672/"
@@ -22,19 +22,19 @@ func TestClient(t *testing.T) {
 	defer stop()
 
 	client := NewClient("amqp://guest:guest@localhost:5672/")
-	NotEqual(t, client, nil)
+	assert.NotNil(t, client, "client exist")
 
 	request := NewRequest().WithRoutingKey("myqueue").WithBody("client testing")
 	response, err := client.Send(request)
-	Equal(t, err, nil)
-	Equal(t, response.Body, []byte("Got message: client testing"))
+	assert.Nil(t, err, "no errors from sending")
+	assert.Equal(t, []byte("Got message: client testing"), response.Body, "correct body in response")
 }
 
 func TestClientConfig(t *testing.T) {
 	cert := Certificates{}
 	certClient := NewClient(clientTestURL).WithTLS(cert)
 
-	NotEqual(t, certClient, nil)
+	assert.NotNil(t, certClient, "client with certificate exist")
 
 	ac := amqp.Config{}
 	qdSettings := QueueDeclareSettings{}
@@ -45,17 +45,17 @@ func TestClientConfig(t *testing.T) {
 		WithConsumeSettings(cSettings).
 		WithTimeout(2500 * time.Millisecond)
 
-	NotEqual(t, acClient, nil)
+	assert.NotNil(t, acClient, "configured client exist")
 }
 
 func TestClientReconnect(t *testing.T) {
 	dialer, connections := testDialer(t)
 	client := NewClient(clientTestURL).WithDialConfig(amqp.Config{Dial: dialer})
-	NotEqual(t, client, nil)
+	assert.NotNil(t, client, "client with dialer exist")
 
 	// Force a connection by calling send.
 	_, err := client.Send(NewRequest().WithResponse(false))
-	Equal(t, err, nil)
+	assert.Nil(t, err, "no error from send without response")
 
 	// Hook into the connection, disconnect
 	conn, _ := <-connections
@@ -64,14 +64,15 @@ func TestClientReconnect(t *testing.T) {
 
 	r := NewRequest().WithBody("client testing").WithResponse(false)
 	r.numRetries = 100
+
 	_, err = client.Send(r)
-	MatchRegex(t, err.Error(), "channel/connection is not open")
+	assert.Contains(t, err.Error(), "channel/connection is not open", "disconnected client yields error")
 
 	// Ensure we're reconnected
 	time.Sleep(100 * time.Millisecond)
 
 	_, err = client.Send(NewRequest().WithBody("client testing").WithResponse(false))
-	Equal(t, err != nil, false)
+	assert.Nil(t, err, "retry after reconnect successful")
 }
 
 func TestClientTimeout(t *testing.T) {
@@ -106,8 +107,8 @@ func TestClientTimeout(t *testing.T) {
 
 	for _, tc := range cases {
 		response, err := tc.client.Send(tc.request)
-		Equal(t, err, ErrTimeout)
-		Equal(t, response, nil)
+		assert.Equal(t, ErrTimeout, err, "error indicates timeout")
+		assert.Nil(t, response, "no response given")
 	}
 }
 
@@ -124,8 +125,8 @@ func TestGracefulShutdown(t *testing.T) {
 
 	r, err := c.Send(NewRequest().WithRoutingKey("myqueue"))
 
-	Equal(t, err, nil)
-	Equal(t, string(r.Body), "hello")
+	assert.Nil(t, err, "no error before shutting down")
+	assert.Equal(t, "hello", string(r.Body), "correct body")
 
 	c.Stop()
 
@@ -133,6 +134,6 @@ func TestGracefulShutdown(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	r, err = c.Send(NewRequest().WithRoutingKey("myqueue"))
-	Equal(t, err, nil)
-	Equal(t, string(r.Body), "hello")
+	assert.Nil(t, err, "no error when sending after stop")
+	assert.Equal(t, "hello", string(r.Body), "correct body after sending after stop")
 }
