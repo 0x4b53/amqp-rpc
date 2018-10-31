@@ -82,7 +82,7 @@ type Server struct {
 	// isRunning is 1 when the server is running.
 	isRunning int32
 
-	// errorLog specifies an optional logger for amqp errors, unexpected behaviour etc.
+	// errorLog specifies an optional logger for amqp errors, unexpected behavior etc.
 	// If nil, logging is done via the log package's standard logger.
 	errorLog LogFunc
 
@@ -163,7 +163,7 @@ func (s *Server) ListenAndServe() {
 	s.responses = make(chan processedRequest)
 	s.stopChan = make(chan struct{}) // Ensure .Stop() can use it.
 
-	if atomic.CompareAndSwapInt32(&s.isRunning, 0, 1) == false {
+	if !atomic.CompareAndSwapInt32(&s.isRunning, 0, 1) {
 		// Already running.
 		panic("Server is already running.")
 	}
@@ -253,7 +253,7 @@ func (s *Server) listenAndServe() error {
 
 	s.debugLog("server: gracefully shutting down")
 
-	// 1. Tell amqp we want to shut down by cancelling all the consumers.
+	// 1. Tell amqp we want to shut down by canceling all the consumers.
 	for _, consumerTag := range consumerTags {
 		err = inputCh.Cancel(consumerTag, false)
 		if err != nil {
@@ -359,7 +359,9 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 			handler(ctx, &rw, delivery)
 
 			if !aac.IsHandled() {
-				delivery.Ack(false)
+				if err := delivery.Ack(false); err != nil {
+					s.errorLog("could not ack message: %s", err.Error())
+				}
 			}
 
 			s.responses <- processedRequest{

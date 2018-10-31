@@ -3,18 +3,19 @@ package amqprpc
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"testing"
 
 	"github.com/streadway/amqp"
 	"github.com/stretchr/testify/assert"
 )
 
-func traceClientMiddleware(ID int, b *bytes.Buffer) ClientMiddlewareFunc {
+func traceClientMiddleware(ID int, w io.Writer) ClientMiddlewareFunc {
 	return func(next SendFunc) SendFunc {
 		return func(r *Request) (*amqp.Delivery, error) {
-			fmt.Fprint(b, ID)
+			fmt.Fprint(w, ID)
 			res, err := next(r)
-			fmt.Fprint(b, ID)
+			fmt.Fprint(w, ID)
 
 			return res, err
 		}

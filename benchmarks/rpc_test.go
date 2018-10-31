@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	amqprpc "github.com/bombsimon/amqp-rpc"
 	uuid "github.com/satori/go.uuid"
 	"github.com/streadway/amqp"
+
+	amqprpc "github.com/bombsimon/amqp-rpc" // nolint: goimports
 )
 
 var url = "amqp://guest:guest@localhost:5672/"

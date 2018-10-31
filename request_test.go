@@ -102,7 +102,7 @@ func TestRequestContext(t *testing.T) {
 	ctxKey := ctxtype("charger")
 	changeThroughMiddleware := false
 
-	myMiddle := func(next SendFunc) SendFunc {
+	myMiddleFunc := func(next SendFunc) SendFunc {
 		return func(r *Request) (*amqp.Delivery, error) {
 			changeThroughMiddleware = r.Context.Value(ctxKey).(bool)
 
@@ -113,14 +113,15 @@ func TestRequestContext(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxKey, true)
 	r := NewRequest().WithContext(ctx)
 
-	c := NewClient("").AddMiddleware(myMiddle)
+	c := NewClient("").AddMiddleware(myMiddleFunc)
 	c.Sender = func(r *Request) (*amqp.Delivery, error) {
 		// Usually i would send something...
 		return &amqp.Delivery{}, nil
 	}
 
-	c.Send(r)
+	_, err := c.Send(r)
 
+	assert.Nil(t, err)
 	assert.Equal(t, true, changeThroughMiddleware, "requesst changed through middleware")
 }
 

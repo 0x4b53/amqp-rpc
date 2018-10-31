@@ -77,7 +77,7 @@ func TestMiddleware(t *testing.T) {
 }
 
 func TestServerReconnect(t *testing.T) {
-	dialer, connections := testDialer(t)
+	dialer, connections := testDialer()
 	s := NewServer(serverTestURL).WithDialConfig(amqp.Config{Dial: dialer})
 
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {

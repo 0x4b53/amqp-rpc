@@ -3,15 +3,16 @@ package amqprpc
 import (
 	"net"
 	"sync"
-	"testing"
 	"time"
 
 	"github.com/streadway/amqp"
 )
 
-// testDialer returns a dialing function that can be passed to amqp.Config as the Dial function.
-// It also returns a function that can be used to get the net.Conn object used by amqp to connect.
-func testDialer(t *testing.T) (func(string, string) (net.Conn, error), chan net.Conn) {
+// testDialer returns a dialing function that can be passed to amqp.Config as
+// the Dial function. It also returns a function that can be used to get the
+// net.Conn object used by amqp to connect.
+// nolint: deadcode,megacheck
+func testDialer() (func(string, string) (net.Conn, error), chan net.Conn) {
 	var (
 		conn net.Conn
 		ch   = make(chan net.Conn, 100)
@@ -36,7 +37,9 @@ func testDialer(t *testing.T) (func(string, string) (net.Conn, error), chan net.
 	}, ch
 }
 
-// startAndWait will start s by running ListenAndServe, it will then block until the server is started.
+// startAndWait will start s by running ListenAndServe, it will then block
+// until the server is started.
+// nolint: deadcode,megacheck
 func startAndWait(s *Server) func() {
 	started := make(chan struct{})
 	once := sync.Once{}

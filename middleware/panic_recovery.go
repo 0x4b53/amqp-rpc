@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"log"
 
-	amqprpc "github.com/bombsimon/amqp-rpc"
 	"github.com/streadway/amqp"
+
+	amqprpc "github.com/bombsimon/amqp-rpc"
 )
 
 var (
@@ -39,7 +40,9 @@ func PanicRecovery(next amqprpc.HandlerFunc) amqprpc.HandlerFunc {
 				fmt.Fprintf(rw, "crashed when running handler: %s", crashMessage)
 
 				// Nack message, do not requeue
-				d.Nack(true, false)
+				if err := d.Nack(true, false); err != nil {
+					log.Printf("could not nack message: %s", err.Error())
+				}
 			}
 		}()
 
