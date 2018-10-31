@@ -73,8 +73,9 @@ type Client struct {
 	// isRunning is 1 when the server is running.
 	isRunning int32
 
-	// errorLog specifies an optional logger for amqp errors, unexpected behaviour etc.
-	// If nil, logging is done via the log package's standard logger.
+	// errorLog specifies an optional logger for amqp errors, unexpected
+	// behavior etc. If nil, logging is done via the log package's standard
+	// logger.
 	errorLog LogFunc
 
 	// debugLog specifies an optional logger for debugging, this logger will
@@ -83,7 +84,7 @@ type Client struct {
 	debugLog LogFunc
 
 	// Sender is the main send function called after all middlewares has been
-	// chained and called. This field can be overridden to simplfy testing.
+	// chained and called. This field can be overridden to simplify testing.
 	Sender SendFunc
 }
 
@@ -206,8 +207,8 @@ func (c *Client) setDefaults() {
 // and run the replies consumer. The method will also automatically restart
 // the setup if the underlying connection or socket isn't gracefully closed.
 // This will also block until the client is gracefully stopped.
-func (c *Client) runForever(url string) {
-	if atomic.CompareAndSwapInt32(&c.isRunning, 0, 1) == false {
+func (c *Client) runForever() {
+	if !atomic.CompareAndSwapInt32(&c.isRunning, 0, 1) {
 		// Already running.
 		return
 	}
@@ -218,7 +219,7 @@ func (c *Client) runForever(url string) {
 		for {
 			c.debugLog("client: connecting...")
 
-			err := c.runOnce(url)
+			err := c.runOnce()
 			if err == nil {
 				c.debugLog("client: finished gracefully")
 				break
@@ -238,7 +239,7 @@ func (c *Client) runForever(url string) {
 // and run the replies consumer. The method will also return the underlying
 // amqp error if the underlying connection or socket isn't gracefully closed.
 // It will also block until the connection is gone.
-func (c *Client) runOnce(url string) error {
+func (c *Client) runOnce() error {
 	c.debugLog("client: starting up...")
 
 	inputConn, outputConn, err := createConnections(c.url, c.dialconfig)
@@ -289,7 +290,7 @@ func (c *Client) runPublisher(outChan *amqp.Channel, stopChan chan struct{}) {
 			c.debugLog("client: publisher stopped after stop chan was closed")
 			return
 
-		case request, _ := <-c.requests:
+		case request := <-c.requests:
 			replyToQueueName := ""
 
 			if request.Reply {
@@ -412,7 +413,7 @@ func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 
 func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// Ensure that the publisher is running.
-	c.runForever(c.url)
+	c.runForever()
 
 	// This is where we get the responses back.
 	// If this request doesn't want a reply back (by setting Reply to false)

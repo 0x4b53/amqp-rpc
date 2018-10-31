@@ -49,7 +49,7 @@ func TestClientConfig(t *testing.T) {
 }
 
 func TestClientReconnect(t *testing.T) {
-	dialer, connections := testDialer(t)
+	dialer, connections := testDialer()
 	client := NewClient(clientTestURL).WithDialConfig(amqp.Config{Dial: dialer})
 	assert.NotNil(t, client, "client with dialer exist")
 
@@ -58,7 +58,7 @@ func TestClientReconnect(t *testing.T) {
 	assert.Nil(t, err, "no error from send without response")
 
 	// Hook into the connection, disconnect
-	conn, _ := <-connections
+	conn := <-connections
 	conn.Close()
 	time.Sleep(10 * time.Millisecond)
 

@@ -35,7 +35,7 @@ func TestAckAwareChannel(t *testing.T) {
 	)
 
 	// 1
-	aac.Ack(1, false)
+	assert.Nil(aac.Ack(1, false))
 
 	assert.Equal(true, aac.handled, "delivery handled")
 	assert.Equal(1, ma.ack, "1 delivery processed")
@@ -43,7 +43,7 @@ func TestAckAwareChannel(t *testing.T) {
 	aac.handled = false
 
 	// 2
-	aac.Nack(2, false, false)
+	assert.Nil(aac.Nack(2, false, false))
 
 	assert.Equal(true, aac.handled, "delivery handled")
 	assert.Equal(1, ma.nack, "1 delivery processed")
@@ -51,7 +51,7 @@ func TestAckAwareChannel(t *testing.T) {
 	aac.handled = false
 
 	// 3
-	aac.Reject(3, false)
+	assert.Nil(aac.Reject(3, false))
 
 	assert.Equal(true, aac.handled, "delivery handled")
 	assert.Equal(1, ma.reject, "1 delivery rejected")

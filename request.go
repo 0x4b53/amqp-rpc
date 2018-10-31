@@ -29,7 +29,7 @@ type Request struct {
 	// Publishing is the publising that are going to be sent.
 	Publishing amqp.Publishing
 
-	// Context is a context wich you can use to pass data from where the
+	// Context is a context which you can use to pass data from where the
 	// request is created to middlewares. By default this will be a
 	// context.Background()
 	Context context.Context

@@ -45,8 +45,10 @@ func TestClientLogging(t *testing.T) {
 		c.WithDebugLogger(logger.Printf)
 		c.WithErrorLogger(logger.Printf)
 
-		c.Send(NewRequest().WithRoutingKey("foobar").WithTimeout(time.Millisecond))
+		_, err := c.Send(NewRequest().WithRoutingKey("foobar").WithTimeout(time.Millisecond))
 		c.Stop()
+
+		assert.Contains(t, err.Error(), "timed out")
 
 		writer.Close()
 	}()

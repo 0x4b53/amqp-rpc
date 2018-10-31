@@ -100,12 +100,12 @@ func TestTopic(t *testing.T) {
 			for key, expectCalled := range tc.called {
 				select {
 				case body := <-wasCalled[key]:
-					if expectCalled != true {
+					if !expectCalled {
 						t.Errorf("%s WAS called on %s with body %s", key, tc.request, body)
 					}
 					assert.Equal(t, tc.request, body, "correct request body")
 				case <-time.After(10 * time.Millisecond):
-					if expectCalled == true {
+					if expectCalled {
 						t.Errorf("%s NOT called on %s", key, tc.request)
 					}
 				}
