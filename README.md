@@ -5,6 +5,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/bombsimon/amqp-rpc)](https://goreportcard.com/report/github.com/bombsimon/amqp-rpc)
 [![Maintainability](https://api.codeclimate.com/v1/badges/77ecbf483dc76d4327a5/maintainability)](https://codeclimate.com/github/bombsimon/amqp-rpc/maintainability)
 [![Test Coverage](https://api.codeclimate.com/v1/badges/77ecbf483dc76d4327a5/test_coverage)](https://codeclimate.com/github/bombsimon/amqp-rpc/test_coverage)
+[![golangci](https://golangci.com/badges/github.com/bombsimon/amqp-rpc.svg)](https://golangci.com/r/github.com/bombsimon/amqp-rpc)
 
 ## Description
 
