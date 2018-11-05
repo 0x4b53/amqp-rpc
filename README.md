@@ -201,19 +201,22 @@ _, err := c.Send(r)
 ```
 
 Just like the server and client, your options is chainable.
+
 ```go
 r := NewRequest().
     WithBody(`{"hello":"world"}`).
     WithContentType("application/json").
-    WithContext(context.Background().
+    WithContext(context.Background()).
     WithExchange("custom.exchange").
     WithHeaders(amqp.Headers{}).
     WithResponse(true).
     WithRoutingKey("routing-key").
+    WithCorrelationID("my-unique-id").
     WithTimeout(5 * time.Second)
 ```
 
 Or use the request as an io.Writer(), like the `ResponseWriter`.
+
 ```go
 r := NewRequest()
 
