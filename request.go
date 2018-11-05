@@ -70,6 +70,14 @@ func (r *Request) WithRoutingKey(rk string) *Request {
 	return r
 }
 
+// WithCorrelationID will add/overwrite the correlation ID used for the
+// request and set it on the Publishing.
+func (r *Request) WithCorrelationID(id string) *Request {
+	r.Publishing.CorrelationId = id
+
+	return r
+}
+
 // WithContext will set the context on the request.
 func (r *Request) WithContext(ctx context.Context) *Request {
 	r.Context = ctx

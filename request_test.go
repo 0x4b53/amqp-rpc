@@ -36,13 +36,14 @@ func TestRequest(t *testing.T) {
 	assert.Nil(err, "no errors sending request")
 	assert.Equal([]byte("Got message: hello request"), response.Body, "correct body returned")
 
-	// Test with exchange, headers, content type nad raw body.
+	// Test with exchange, headers, content type, correlation ID and raw body.
 	request = NewRequest().
 		WithRoutingKey("myqueue").
 		WithExchange("").
 		WithHeaders(amqp.Table{}).
 		WithResponse(false).
 		WithContentType("application/json").
+		WithCorrelationID("this-is-unique").
 		WithBody(`{"foo":"bar"}`)
 
 	response, err = client.Send(request)

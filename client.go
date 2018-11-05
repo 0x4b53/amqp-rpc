@@ -420,10 +420,11 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// this channel will get a nil message after publisher has Published the
 	// message.
 	r.response = make(chan *amqp.Delivery)
-	correlationID := uuid.Must(uuid.NewV4()).String()
 
-	// Set the correlation id on the publishing.
-	r.Publishing.CorrelationId = correlationID
+	// Set the correlation id on the publishing if not yet set.
+	if r.Publishing.CorrelationId == "" {
+		r.Publishing.CorrelationId = uuid.Must(uuid.NewV4()).String()
+	}
 
 	// This is where we get any (client) errors if they occure before we could
 	// even send the request.
@@ -432,12 +433,12 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// Ensure the responseConsumer will know which chan to forward the response
 	// to when the response arrives.
 	c.mu.Lock()
-	c.correlationMapping[correlationID] = r.response
+	c.correlationMapping[r.Publishing.CorrelationId] = r.response
 	c.mu.Unlock()
 
 	defer func() {
 		c.mu.Lock()
-		delete(c.correlationMapping, correlationID)
+		delete(c.correlationMapping, r.Publishing.CorrelationId)
 		c.mu.Unlock()
 	}()
 
@@ -450,21 +451,21 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// start the timeout counting now.
 	timeoutChan := r.startTimeout()
 
-	c.debugLog("client: queuing request %s", correlationID)
+	c.debugLog("client: queuing request %s", r.Publishing.CorrelationId)
 	c.requests <- r
-	c.debugLog("client: waiting for reply of %s", correlationID)
+	c.debugLog("client: waiting for reply of %s", r.Publishing.CorrelationId)
 
 	// All responses are published on the requests response channel. Hang here
 	// until a response is received and close the channel when it's read.
 	select {
 	case err := <-r.errChan:
-		c.debugLog("client: error for %s, %s", correlationID, err.Error())
+		c.debugLog("client: error for %s, %s", r.Publishing.CorrelationId, err.Error())
 		return nil, err
 	case <-timeoutChan:
-		c.debugLog("client: timeout for %s", correlationID)
+		c.debugLog("client: timeout for %s", r.Publishing.CorrelationId)
 		return nil, ErrTimeout
 	case delivery := <-r.response:
-		c.debugLog("client: got delivery for %s", correlationID)
+		c.debugLog("client: got delivery for %s", r.Publishing.CorrelationId)
 		return delivery, nil
 	}
 }
