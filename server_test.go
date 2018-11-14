@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var serverTestURL = "amqp://guest:guest@localhost:5672/"
+const (
+	serverTestURL = "amqp://guest:guest@localhost:5672/"
+)
 
 func TestSendWithReply(t *testing.T) {
 	cert := Certificates{}

@@ -1,15 +1,8 @@
 package amqprpc
 
 import (
-	"math/rand"
 	"net"
-	"sync"
 	"time"
-)
-
-var (
-	connectionPool []net.Conn
-	mutext         = &sync.Mutex{}
 )
 
 // Dialer is a function returning a connection used to connect
@@ -30,19 +23,5 @@ func DefaultDialer(network, addr string) (net.Conn, error) {
 		return nil, err
 	}
 
-	// Add connection to the pool
-	mutext.Lock()
-	connectionPool = []net.Conn{conn}
-	mutext.Unlock()
-
 	return conn, nil
-}
-
-// GetConnection is a way to hook to the connection used to when connecting
-// to the message bus.
-func GetConnection() net.Conn {
-	s := rand.NewSource(time.Now().Unix())
-	r := rand.New(s)
-
-	return connectionPool[r.Intn(len(connectionPool))]
 }

@@ -10,7 +10,7 @@ import (
 	amqprpc "github.com/bombsimon/amqp-rpc"
 )
 
-var (
+const (
 	// HandlerCrashedHeader is the header that is set when a handelr panics.
 	HandlerCrashedHeader = "X-Handler-Crashed"
 )

@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var clientTestURL = "amqp://guest:guest@localhost:5672/"
+const (
+	clientTestURL = "amqp://guest:guest@localhost:5672/"
+)
 
 func TestClient(t *testing.T) {
 	s := NewServer(clientTestURL)

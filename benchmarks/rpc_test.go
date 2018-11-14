@@ -11,8 +11,9 @@ import (
 	amqprpc "github.com/bombsimon/amqp-rpc" // nolint: goimports
 )
 
-var url = "amqp://guest:guest@localhost:5672/"
-var result *amqp.Delivery
+const (
+	url = "amqp://guest:guest@localhost:5672/"
+)
 
 func Benchmark(b *testing.B) {
 	s := amqprpc.NewServer(url)
@@ -27,7 +28,7 @@ func Benchmark(b *testing.B) {
 	b.Run("WithReplies", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			result, _ = c.Send(amqprpc.NewRequest().WithRoutingKey(queueName))
+			_, _ = c.Send(amqprpc.NewRequest().WithRoutingKey(queueName))
 		}
 	})
 
@@ -35,21 +36,21 @@ func Benchmark(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				result, _ = c.Send(amqprpc.NewRequest().WithRoutingKey(queueName))
+				_, _ = c.Send(amqprpc.NewRequest().WithRoutingKey(queueName))
 			}
 		})
 	})
 	b.Run("WithoutReplies", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			result, _ = c.Send(amqprpc.NewRequest().WithRoutingKey(queueName).WithResponse(false))
+			_, _ = c.Send(amqprpc.NewRequest().WithRoutingKey(queueName).WithResponse(false))
 		}
 	})
 	b.Run("WithoutReplies-Parallel", func(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				result, _ = c.Send(amqprpc.NewRequest().WithRoutingKey(queueName).WithResponse(false))
+				_, _ = c.Send(amqprpc.NewRequest().WithRoutingKey(queueName).WithResponse(false))
 			}
 		})
 	})

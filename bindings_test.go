@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var bindingsTestURL = "amqp://guest:guest@localhost:5672"
+const (
+	bindingsTestURL = "amqp://guest:guest@localhost:5672"
+)
 
 func TestFanout(t *testing.T) {
 	var (
