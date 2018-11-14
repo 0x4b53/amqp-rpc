@@ -16,7 +16,4 @@ func TestDialer(t *testing.T) {
 	conn, err = DefaultDialer("tcp", "localhost:5672")
 	assert.Nil(err, "no error for correct hos")
 	assert.NotNil(conn, "connection exist")
-
-	conn = GetConnection()
-	assert.NotNil(conn, "connection can be retrieved")
 }

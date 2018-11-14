@@ -53,6 +53,7 @@ func removeFile(path string) {
 	}
 }
 
+// nolint: gochecknoglobals
 var (
 	key = `-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCs1E61OTgl8XhQ
