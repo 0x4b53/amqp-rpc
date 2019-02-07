@@ -17,6 +17,12 @@ var (
 	ErrTimeout = errors.New("request timed out")
 )
 
+// OnStartedFunc can be registered at Server.OnStarted(f) and
+// Client.OnStarted(f). This is used when you want to do more setup on the
+// connections and/or channels from amqp, for example setting Qos,
+// NotifyPublish etc.
+type OnStartedFunc func(inputConn, outputConn *amqp.Connection, inputChannel, outputChannel *amqp.Channel)
+
 // ExchangeDeclareSettings is the settings that will be used when a handler
 // is mapped to a fanout exchange and an exchange is declared.
 type ExchangeDeclareSettings struct {

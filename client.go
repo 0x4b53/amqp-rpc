@@ -86,6 +86,9 @@ type Client struct {
 	// Sender is the main send function called after all middlewares has been
 	// chained and called. This field can be overridden to simplify testing.
 	Sender SendFunc
+
+	// onStarteds will all be executed after the client has connected.
+	onStarteds []OnStartedFunc
 }
 
 // NewClient will return a pointer to a new Client. There are two ways to manage the
@@ -120,6 +123,23 @@ func NewClient(url string) *Client {
 	c.setDefaults()
 
 	return c
+}
+
+/*
+OnStarted can be used to hook into the connections/channels that the client is
+using. This can be useful if you want more control over amqp directly.
+Note that since the client is lazy and won't connect until the first .Send()
+the provided OnStartedFunc won't be called until then. Also note that this
+is blocking and the client won't continue it's startup until this function has
+finished executing.
+
+	client := NewClient(url)
+	client.OnStarted(func(inConn, outConn *amqp.Connection, inChan, outChan *amqp.Channel) {
+		// Do something with amqp connections/channels.
+	})
+*/
+func (c *Client) OnStarted(f OnStartedFunc) {
+	c.onStarteds = append(c.onStarteds, f)
 }
 
 // WithDialConfig sets the dial config used for the client.
@@ -255,6 +275,12 @@ func (c *Client) runOnce() error {
 	}
 	defer inputCh.Close()
 	defer outputCh.Close()
+
+	// Notify everyone that the client has started. Runs sequentially so there
+	// isn't any race conditions when working with the connections or channels.
+	for _, onStarted := range c.onStarteds {
+		onStarted(inputConn, outputConn, inputCh, outputCh)
+	}
 
 	err = c.runRepliesConsumer(inputCh)
 	if err != nil {

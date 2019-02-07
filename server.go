@@ -22,9 +22,6 @@ const (
 // HandlerFunc is the function that handles all request based on the routing key.
 type HandlerFunc func(context.Context, *ResponseWriter, amqp.Delivery)
 
-// OnStartedFunc is the function that can be passed to Server.OnStarted().
-type OnStartedFunc func(*amqp.Connection, *amqp.Connection, *amqp.Channel, *amqp.Channel)
-
 // processedRequest is used to add the response from a handler func combined
 // with a amqp.Delivery. The reasone we need to combine those is that we reply
 // to each request in a separate go routine and the delivery is required to
@@ -140,7 +137,10 @@ func (s *Server) AddMiddleware(m ServerMiddlewareFunc) *Server {
 
 /*
 OnStarted can be used to hook into the connections/channels that the server is
-using. This can be useful if you want more control over amqp directly.
+using. This can be useful if you want more control over amqp directly. The
+OnStartedFunc will be executed after ListenAndServe is called. Note that this
+function is blocking and the server won't continue it's startup until it has
+finished executing.
 
 	server := NewServer(url)
 	server.OnStarted(func(inConn, outConn *amqp.Connection, inChan, outChan *amqp.Channel) {
@@ -217,6 +217,12 @@ func (s *Server) listenAndServe() error {
 	defer inputCh.Close()
 	defer outputCh.Close()
 
+	// Notify everyone that the server has started. Runs sequentially so there
+	// isn't any race conditions when working with the connections or channels.
+	for _, onStarted := range s.onStarteds {
+		onStarted(inputConn, outputConn, inputCh, outputCh)
+	}
+
 	// Setup a WaitGroup for use by consume(). This WaitGroup will be 0
 	// when all consumers are finished consuming messages.
 	consumersWg := sync.WaitGroup{}
@@ -233,12 +239,6 @@ func (s *Server) listenAndServe() error {
 	responderWg.Add(1) // Sync the waitgroup to this goroutine.
 
 	go s.responder(outputCh, &responderWg)
-
-	// Notify everyone that the server has started. Runs sequentially so there
-	// isn't any race conditions when working with the connections or channels.
-	for _, onStarted := range s.onStarteds {
-		onStarted(inputConn, outputConn, inputCh, outputCh)
-	}
 
 	err = monitorAndWait(
 		s.stopChan,
