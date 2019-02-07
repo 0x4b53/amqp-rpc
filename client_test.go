@@ -139,3 +139,51 @@ func TestGracefulShutdown(t *testing.T) {
 	assert.Nil(t, err, "no error when sending after stop")
 	assert.Equal(t, "hello", string(r.Body), "correct body after sending after stop")
 }
+
+func TestClient_OnStarted(t *testing.T) {
+	s := NewServer(clientTestURL)
+	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		fmt.Fprintf(rw, "Got message: %s", d.Body)
+	}))
+
+	stop := startAndWait(s)
+	defer stop()
+
+	errs := make(chan string, 4)
+
+	c := NewClient(clientTestURL)
+	c.OnStarted(func(inC, outC *amqp.Connection, inCh, outCh *amqp.Channel) {
+		if inC == nil {
+			errs <- "inC was nil"
+		}
+		if outC == nil {
+			errs <- "outC was nil"
+		}
+		if inCh == nil {
+			errs <- "inCh was nil"
+		}
+		if outCh == nil {
+			errs <- "outCh was nil"
+		}
+
+		close(errs)
+	})
+
+	// Since the client is lazy, OnStarted isn't called until the first .Send().
+	request := NewRequest().
+		WithRoutingKey("myqueue").
+		WithBody("client testing").
+		WithResponse(false)
+
+	_, err := c.Send(request)
+	assert.Nil(t, err)
+
+	select {
+	case e, ok := <-errs:
+		if ok {
+			t.Fatal(e)
+		}
+	case <-time.After(time.Second):
+		t.Error("OnStarted was never called")
+	}
+}
