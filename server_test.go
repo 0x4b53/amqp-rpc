@@ -163,3 +163,27 @@ func TestStopWhenStarting(t *testing.T) {
 		t.Error("Didn't succeed to close server")
 	}
 }
+
+func TestQoSSettings(t *testing.T) {
+	s := NewServer(serverTestURL).
+		WithQoSSettings(QoSSettings{
+			PrefetchCount: 2,
+		})
+
+	assert.Equal(t, 2, s.qosSettings.PrefetchCount)
+	assert.Equal(t, true, s.qosSettings.isSet)
+
+	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		fmt.Fprintf(rw, "QoS active")
+	}))
+
+	stop := startAndWait(s)
+	defer stop()
+
+	c := NewClient(serverTestURL)
+	request := NewRequest().WithRoutingKey("myqueue")
+	reply, err := c.Send(request)
+
+	assert.Nil(t, err, "client had no errors")
+	assert.Equal(t, []byte("QoS active"), reply.Body, "got reply")
+}

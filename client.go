@@ -269,7 +269,7 @@ func (c *Client) runOnce() error {
 	defer inputConn.Close()
 	defer outputConn.Close()
 
-	inputCh, outputCh, err := createChannels(inputConn, outputConn)
+	inputCh, outputCh, err := createChannels(inputConn, outputConn, QoSSettings{})
 	if err != nil {
 		return err
 	}

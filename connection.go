@@ -62,6 +62,15 @@ type PublishSettings struct {
 	Immediate bool
 }
 
+// QoSSettings is the settings that will be used to set QoS for created
+// channels.
+type QoSSettings struct {
+	PrefetchCount int
+	PrefetchSize  int
+	Global        bool
+	isSet         bool // Will be true if QoS was triggered.
+}
+
 func monitorAndWait(stopChan chan struct{}, amqpErrs ...chan *amqp.Error) error {
 	result := make(chan error, len(amqpErrs))
 
@@ -105,10 +114,16 @@ func createConnections(url string, config amqp.Config) (*amqp.Connection, *amqp.
 	return conn1, conn2, nil
 }
 
-func createChannels(inputConn, outputConn *amqp.Connection) (*amqp.Channel, *amqp.Channel, error) {
+func createChannels(inputConn, outputConn *amqp.Connection, qs QoSSettings) (*amqp.Channel, *amqp.Channel, error) {
 	inputCh, err := inputConn.Channel()
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if qs.isSet {
+		if err := inputCh.Qos(qs.PrefetchCount, qs.PrefetchSize, qs.Global); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	outputCh, err := outputConn.Channel()

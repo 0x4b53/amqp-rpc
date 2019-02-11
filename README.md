@@ -332,9 +332,18 @@ uri := "amqps://guest:guest@localhost:5671"
 dialConfig := amqp.Config{
     TLSClientConfig: cert.TLSConfig(),
 }
+qos := QoSSettings{
+    PrefetchCount: 2,
+    PrefetchSize: 1024,
+    Global: false,
+}
 
-s := NewServer(uri).WithDialConfig(dialConfig)
-c := NewClient(uri).WithDialConfig(dialConfig)
+s := NewServer(uri).
+    WithDialConfig(dialConfig).
+    WithQoSSettings(qos)
+
+c := NewClient(uri).
+    WithDialConfig(dialConfig)
 
 s.ListenAndServe()
 ```

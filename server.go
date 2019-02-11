@@ -72,6 +72,10 @@ type Server struct {
 	// bus.
 	consumeSettings ConsumeSettings
 
+	// qosSettings is configuration used when creating input channel to control
+	// qos for incomming messages.
+	qosSettings QoSSettings
+
 	// stopChan channel is used to signal shutdowns when calling Stop(). The
 	// channel will be closed when Stop() is called.
 	stopChan chan struct{}
@@ -101,6 +105,7 @@ func NewServer(url string) *Server {
 		exchangeDelcareSettings: ExchangeDeclareSettings{Durable: true},
 		queueDeclareSettings:    QueueDeclareSettings{},
 		consumeSettings:         ConsumeSettings{},
+		qosSettings:             QoSSettings{},
 		errorLog:                log.Printf,                                  // use the standard logger default.
 		debugLog:                func(format string, args ...interface{}) {}, // don't print anything default.
 	}
@@ -118,12 +123,22 @@ func (s *Server) WithDialConfig(c amqp.Config) *Server {
 // WithErrorLogger sets the logger to use for error logging.
 func (s *Server) WithErrorLogger(f LogFunc) *Server {
 	s.errorLog = f
+
 	return s
 }
 
 // WithDebugLogger sets the logger to use for debug logging.
 func (s *Server) WithDebugLogger(f LogFunc) *Server {
 	s.debugLog = f
+
+	return s
+}
+
+// WithQoSSettings sets custom QoS settings to be used for the input channel.
+func (s *Server) WithQoSSettings(qs QoSSettings) *Server {
+	qs.isSet = true
+	s.qosSettings = qs
+
 	return s
 }
 
@@ -210,7 +225,7 @@ func (s *Server) listenAndServe() error {
 	defer inputConn.Close()
 	defer outputConn.Close()
 
-	inputCh, outputCh, err := createChannels(inputConn, outputConn)
+	inputCh, outputCh, err := createChannels(inputConn, outputConn, s.qosSettings)
 	if err != nil {
 		return err
 	}
