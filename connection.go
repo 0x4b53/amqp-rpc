@@ -121,7 +121,7 @@ func createChannels(inputConn, outputConn *amqp.Connection, qs QoSSettings) (*am
 	}
 
 	if qs.isSet {
-		if err := inputCh.Qos(qs.PrefetchCount, qs.PrefetchSize, qs.Global); err != nil {
+		if err = inputCh.Qos(qs.PrefetchCount, qs.PrefetchSize, qs.Global); err != nil {
 			return nil, nil, err
 		}
 	}
