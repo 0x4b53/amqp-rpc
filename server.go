@@ -150,18 +150,16 @@ func (s *Server) AddMiddleware(m ServerMiddlewareFunc) *Server {
 	return s
 }
 
-/*
-OnStarted can be used to hook into the connections/channels that the server is
-using. This can be useful if you want more control over amqp directly. The
-OnStartedFunc will be executed after ListenAndServe is called. Note that this
-function is blocking and the server won't continue it's startup until it has
-finished executing.
-
-	server := NewServer(url)
-	server.OnStarted(func(inConn, outConn *amqp.Connection, inChan, outChan *amqp.Channel) {
-		// Do something with amqp connections/channels.
-	})
-*/
+// OnStarted can be used to hook into the connections/channels that the server
+// is using. This can be useful if you want more control over amqp directly. The
+// OnStartedFunc will be executed after ListenAndServe is called. Note that this
+// function is blocking and the server won't continue it's startup until it has
+// finished executing.
+//
+// 	server := NewServer(url)
+// 	server.OnStarted(func(inConn, outConn *amqp.Connection, inChan, outChan *amqp.Channel) {
+// 		// Do something with amqp connections/channels.
+// 	})
 func (s *Server) OnStarted(f OnStartedFunc) {
 	s.onStarteds = append(s.onStarteds, f)
 }

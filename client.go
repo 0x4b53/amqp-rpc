@@ -159,6 +159,7 @@ func (c *Client) WithTLS(cert Certificates) *Client {
 // WithErrorLogger sets the logger to use for error logging.
 func (c *Client) WithErrorLogger(f LogFunc) *Client {
 	c.errorLog = f
+
 	return c
 }
 
@@ -189,6 +190,7 @@ func (c *Client) WithConsumeSettings(s ConsumeSettings) *Client {
 // multiple of a millisecond. Rounding will be away from zero.
 func (c *Client) WithTimeout(t time.Duration) *Client {
 	c.timeout = t.Round(time.Millisecond)
+
 	return c
 }
 
