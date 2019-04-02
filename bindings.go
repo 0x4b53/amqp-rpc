@@ -4,6 +4,15 @@ import (
 	"github.com/streadway/amqp"
 )
 
+// Exchanges are enteties where messages are sent. This defines the available
+// entities based on https://www.rabbitmq.com/tutorials/amqp-concepts.html.
+const (
+	ExchangeDirect  = "direct"
+	ExchangeFanout  = "fanout"
+	ExchangeTopic   = "topic"
+	ExchangeHeaders = "headers"
+)
+
 // HandlerBinding holds information about how an exchange and a queue should be
 // declared and bound. If the ExchangeName is not defined (an empty string), the
 // queue will not be bound to the exchange but assumed to use the default match.
@@ -22,7 +31,7 @@ func DirectBinding(routingKey string, handler HandlerFunc) HandlerBinding {
 	return HandlerBinding{
 		QueueName:    routingKey,
 		ExchangeName: "amq.direct",
-		ExchangeType: "direct",
+		ExchangeType: ExchangeDirect,
 		RoutingKey:   routingKey,
 		BindHeaders:  amqp.Table{},
 		Handler:      handler,
@@ -35,7 +44,7 @@ func DirectBinding(routingKey string, handler HandlerFunc) HandlerBinding {
 func FanoutBinding(exchangeName string, handler HandlerFunc) HandlerBinding {
 	return HandlerBinding{
 		ExchangeName: exchangeName,
-		ExchangeType: "fanout",
+		ExchangeType: ExchangeFanout,
 		RoutingKey:   "",
 		BindHeaders:  amqp.Table{},
 		Handler:      handler,
@@ -48,7 +57,7 @@ func TopicBinding(queueName, routingKey string, handler HandlerFunc) HandlerBind
 	return HandlerBinding{
 		QueueName:    queueName,
 		ExchangeName: "amq.topic",
-		ExchangeType: "topic",
+		ExchangeType: ExchangeTopic,
 		RoutingKey:   routingKey,
 		BindHeaders:  amqp.Table{},
 		Handler:      handler,
@@ -62,7 +71,7 @@ func HeadersBinding(queueName string, headers amqp.Table, handler HandlerFunc) H
 	return HandlerBinding{
 		QueueName:    queueName,
 		ExchangeName: "amq.match",
-		ExchangeType: "headers",
+		ExchangeType: ExchangeHeaders,
 		RoutingKey:   "",
 		BindHeaders:  headers,
 		Handler:      handler,
