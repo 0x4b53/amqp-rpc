@@ -1,11 +1,20 @@
-# RabbitMQ RPC
+<h1 align="center">
+  <img src="amqprpc.png" alt="AMQP RPC" width="300">
+  <br>
+  RabbitMQ RPC
+  <br>
+</h1>
 
-[![GoDoc](https://godoc.org/github.com/bombsimon/amqp-rpc?status.svg)](https://godoc.org/github.com/bombsimon/amqp-rpc)
-[![Build Status](https://travis-ci.org/bombsimon/amqp-rpc.svg?branch=master)](https://travis-ci.org/bombsimon/amqp-rpc)
-[![Go Report Card](https://goreportcard.com/badge/github.com/bombsimon/amqp-rpc)](https://goreportcard.com/report/github.com/bombsimon/amqp-rpc)
-[![Maintainability](https://api.codeclimate.com/v1/badges/77ecbf483dc76d4327a5/maintainability)](https://codeclimate.com/github/bombsimon/amqp-rpc/maintainability)
-[![Test Coverage](https://api.codeclimate.com/v1/badges/77ecbf483dc76d4327a5/test_coverage)](https://codeclimate.com/github/bombsimon/amqp-rpc/test_coverage)
-[![golangci](https://golangci.com/badges/github.com/bombsimon/amqp-rpc.svg)](https://golangci.com/r/github.com/bombsimon/amqp-rpc)
+<h4 align="center">RabbitMQ RPC Framework</h4>
+
+<p align="center">
+<a href="https://godoc.org/github.com/bombsimon/amqp-rpc"><img src="https://godoc.org/github.com/bombsimon/amqp-rpc?status.svg" alt="GoDoc"></a>
+<a href="https://travis-ci.org/bombsimon/amqp-rpc"><img src="https://travis-ci.org/bombsimon/amqp-rpc.svg?branch=master"></a>
+<a href="https://goreportcard.com/report/github.com/bombsimon/amqp-rpc"><img src="https://goreportcard.com/badge/github.com/bombsimon/amqp-rpc"></a>
+<a href="https://codeclimate.com/github/bombsimon/amqp-rpc/maintainability"><img src="https://api.codeclimate.com/v1/badges/77ecbf483dc76d4327a5/maintainability"></a>
+<a href="https://codeclimate.com/github/bombsimon/amqp-rpc/test_coverage"><img src="https://api.codeclimate.com/v1/badges/77ecbf483dc76d4327a5/test_coverage"></a>
+<a href="https://golangci.com/r/github.com/bombsimon/amqp-rpc"><img src="https://golangci.com/badges/github.com/bombsimon/amqp-rpc.svg"></a>
+</p>
 
 ## Description
 
@@ -19,12 +28,7 @@ We assume that the user has some knowledge about RabbitMQ and preferrably the Go
 package since a few of the types are exposed to the end user. However, for
 simple setups there's no need for understanding of any of this.
 
-## Components
-
-This framework consists of a client and a server with related beloning
-components such as request, responses, connections and other handy types.
-
-### Server
+## Server
 
 The server is designed to be a *plug-and-play* component with handlers attached
 to endpoints for amqp messages. All you need to do to start consuming
@@ -69,7 +73,7 @@ customBinding := HandlerBinding{
 s.Bind(customBinding)
 ```
 
-#### Server middlewares
+### Server middlewares
 
 Middlewares can be hooked to both a specific handler and to the entire server to
 be executed on all request no matter what endpoint. You can also chain
@@ -125,7 +129,7 @@ s.AddMiddleware(myMiddle)
 s.ListenAndServe()
 ```
 
-### Client
+## Client
 
 The clien is designed to look similar to the server in usage and be just as easy
 to configure for your likings. One feature of the client is that it's build
@@ -162,7 +166,7 @@ c := NewClient("amqp://guest:guest@localhost:5672").
 c.Send(NewRequest().WithRoutingKey("queue_one"))
 ```
 
-#### Sender
+### Sender
 
 The client comes with a default implementation which is a complete send function
 that connects to the message bus, publishes the message and if desired waits for
@@ -182,7 +186,7 @@ c := amqprpctest.NewTestClient(customSendFunc)
 c.Send(NewRequest())
 ```
 
-#### Request
+### Request
 
 To perform requests easily the client expects a `Request` type as input when
 sending messages. This type holds all the information about which exchange,
@@ -228,7 +232,7 @@ encoder.Encode(serializableObject)
 response will be the first one respondend from any of the subscribers. There is
 currently no way to accept multiple responses or responses in a specific order.
 
-#### Client middlewares
+### Client middlewares
 
 Just like the server this framework is implementing support to be able to
 easily plug code before and after a request is being sent with the client.
@@ -275,7 +279,7 @@ clients middlewares. This is so the request can override headers etc.
 
 Se `examples/middleware` for more examples.
 
-### Logger
+## Logger
 
 You can specifiy an optional logger for amqp errors, unexpected behaviour etc.
 By default only error logging is turned on and is logged via the log package's
@@ -312,7 +316,7 @@ client.WithErrorLogger(logger.Errorf)
 client.WithDebugLogger(logger.Debugf)
 ```
 
-### Connection and TLS
+## Connection and TLS
 
 As a part of the mantra to minimize implementation and handling of the actual
 conections this framework implements a really easy way to use TLS for either the
