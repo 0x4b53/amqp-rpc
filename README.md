@@ -60,7 +60,7 @@ s.Bind(HeadersBinding("queue-name", amqp.Table{"x-match": "all", "foo": "bar"}, 
 customBinding := HandlerBinding{
     QueueName:    "oh-sweet-queue",
     ExchangeName: "my-exchange",
-    ExchangeType: "direct",
+    ExchangeType: ExchangeDirect,
     RoutingKey:   "my-key",
     BindHeaders:  amqp.Table{},
     Handler:      handleFunc,
