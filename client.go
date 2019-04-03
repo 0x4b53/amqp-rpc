@@ -1,6 +1,7 @@
 package amqprpc
 
 import (
+	"crypto/tls"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -150,8 +151,8 @@ func (c *Client) WithDialConfig(dc amqp.Config) *Client {
 }
 
 // WithTLS sets the TLS config in the dial config for the client.
-func (c *Client) WithTLS(cert Certificates) *Client {
-	c.dialconfig.TLSClientConfig = cert.TLSConfig()
+func (c *Client) WithTLS(tls *tls.Config) *Client {
+	c.dialconfig.TLSClientConfig = tls
 
 	return c
 }
@@ -159,12 +160,14 @@ func (c *Client) WithTLS(cert Certificates) *Client {
 // WithErrorLogger sets the logger to use for error logging.
 func (c *Client) WithErrorLogger(f LogFunc) *Client {
 	c.errorLog = f
+
 	return c
 }
 
 // WithDebugLogger sets the logger to use for debug logging.
 func (c *Client) WithDebugLogger(f LogFunc) *Client {
 	c.debugLog = f
+
 	return c
 }
 
@@ -184,11 +187,20 @@ func (c *Client) WithConsumeSettings(s ConsumeSettings) *Client {
 	return c
 }
 
+// WithPublishSettings will set the client publishing settings when publishing
+// messages.
+func (c *Client) WithPublishSettings(s PublishSettings) *Client {
+	c.publishSettings = s
+
+	return c
+}
+
 // WithTimeout will set the client timeout used when publishing messages.
 // t will be rounded using the duration's Round function to the nearest
 // multiple of a millisecond. Rounding will be away from zero.
 func (c *Client) WithTimeout(t time.Duration) *Client {
 	c.timeout = t.Round(time.Millisecond)
+
 	return c
 }
 
@@ -503,5 +515,6 @@ func (c *Client) Stop() {
 	if atomic.LoadInt32(&c.isRunning) != 1 {
 		return
 	}
+
 	close(c.stopChan)
 }
