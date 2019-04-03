@@ -1,0 +1,9 @@
+#!/usr/bin/env ruby -wKU
+
+verbose false
+show_kramdown_warnings true
+ignore_front_matter true
+
+style "#{File.dirname(__FILE__)}/.mdlrc.style.rb"
+
+# vim: set ft=ruby:

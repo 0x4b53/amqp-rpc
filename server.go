@@ -2,6 +2,7 @@ package amqprpc
 
 import (
 	"context"
+	"crypto/tls"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -115,15 +116,24 @@ func (s *Server) WithDialConfig(c amqp.Config) *Server {
 	return s
 }
 
+// WithTLS sets the TLS config in the dial config for the server.
+func (s *Server) WithTLS(tls *tls.Config) *Server {
+	s.dialconfig.TLSClientConfig = tls
+
+	return s
+}
+
 // WithErrorLogger sets the logger to use for error logging.
 func (s *Server) WithErrorLogger(f LogFunc) *Server {
 	s.errorLog = f
+
 	return s
 }
 
 // WithDebugLogger sets the logger to use for debug logging.
 func (s *Server) WithDebugLogger(f LogFunc) *Server {
 	s.debugLog = f
+
 	return s
 }
 

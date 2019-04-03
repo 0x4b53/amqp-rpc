@@ -34,7 +34,7 @@ func TestClient(t *testing.T) {
 
 func TestClientConfig(t *testing.T) {
 	cert := Certificates{}
-	certClient := NewClient(clientTestURL).WithTLS(cert)
+	certClient := NewClient(clientTestURL).WithTLS(cert.TLSConfig())
 
 	assert.NotNil(t, certClient, "client with certificate exist")
 

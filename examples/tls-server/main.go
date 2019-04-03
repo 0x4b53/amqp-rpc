@@ -16,8 +16,7 @@ var logger = log.New(os.Stdout, "[amqp-rpc]", log.LstdFlags)
 
 func main() {
 	cert := amqprpc.Certificates{
-		Cert: "server.crt",
-		Key:  "server.key",
+		CA: "cacert.pem",
 	}
 
 	s := amqprpc.NewServer(url).WithDialConfig(amqp.Config{
@@ -41,12 +40,10 @@ func handleClientUsage(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.D
 	logger.Printf("Handling 'Client usage' request")
 
 	cert := amqprpc.Certificates{
-		Cert: "client/cert.pem",
-		Key:  "client/key.pem",
-		CA:   "client/cacert.pem",
+		CA: "cacert.pem",
 	}
 
-	c := amqprpc.NewClient("amqps://guest:guest@localhost:5671/").WithTLS(cert)
+	c := amqprpc.NewClient("amqps://guest:guest@localhost:5671/").WithTLS(cert.TLSConfig())
 
 	request := amqprpc.NewRequest().WithRoutingKey("hello_world").WithBody("Sent with client")
 	response, err := c.Send(request)
