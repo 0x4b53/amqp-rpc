@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	"github.com/streadway/amqp"
 )
 
@@ -111,7 +111,7 @@ func NewClient(url string) *Client {
 		requests:           make(chan *Request),
 		correlationMapping: make(map[string]chan *amqp.Delivery),
 		mu:                 sync.RWMutex{},
-		replyToQueueName:   "reply-to-" + uuid.Must(uuid.NewV4()).String(),
+		replyToQueueName:   "reply-to-" + uuid.New().String(),
 		middlewares:        []ClientMiddlewareFunc{},
 		timeout:            time.Second * 10,
 		errorLog:           log.Printf,                                  // use the standard logger default.
@@ -461,7 +461,7 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 
 	// Set the correlation id on the publishing if not yet set.
 	if r.Publishing.CorrelationId == "" {
-		r.Publishing.CorrelationId = uuid.Must(uuid.NewV4()).String()
+		r.Publishing.CorrelationId = uuid.New().String()
 	}
 
 	// This is where we get any (client) errors if they occure before we could

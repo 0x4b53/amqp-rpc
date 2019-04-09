@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	"github.com/streadway/amqp"
 
 	amqprpc "github.com/bombsimon/amqp-rpc" // nolint: goimports
@@ -17,7 +17,7 @@ const (
 
 func Benchmark(b *testing.B) {
 	s := amqprpc.NewServer(url)
-	queueName := uuid.Must(uuid.NewV4()).String()
+	queueName := uuid.New().String()
 	s.Bind(amqprpc.DirectBinding(queueName, func(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {}))
 
 	go s.ListenAndServe()

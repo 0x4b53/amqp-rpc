@@ -14,7 +14,7 @@ import (
 	"fmt"
 
 	amqprpc "github.com/bombsimon/amqp-rpc"
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	"github.com/streadway/amqp"
 )
 
@@ -64,7 +64,7 @@ func handlePassword(next amqprpc.SendFunc) amqprpc.SendFunc {
 	return func(r *amqprpc.Request) (*amqp.Delivery, error) {
 		if password == "" {
 			fmt.Println(">> I'm being executed before Send(), I'm ensuring you've got a password header!")
-			password = uuid.Must(uuid.NewV4()).String()
+			password = uuid.New().String()
 		}
 
 		r.Publishing.Headers["password"] = password
@@ -85,7 +85,7 @@ func exchangeHeader(next amqprpc.HandlerFunc) amqprpc.HandlerFunc {
 	return func(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
 		next(ctx, rw, d)
 
-		rw.WriteHeader("password", uuid.Must(uuid.NewV4()).String())
+		rw.WriteHeader("password", uuid.New().String())
 	}
 }
 
