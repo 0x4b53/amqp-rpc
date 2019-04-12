@@ -206,7 +206,7 @@ func (s *Server) ListenAndServe() {
 }
 
 func (s *Server) listenAndServe() error {
-	s.debugLog("server: staring listener: %s", s.url)
+	s.debugLog("server: starting listener: %s", s.url)
 
 	// We are using two different connections here because:
 	// "It's advisable to use separate connections for Channel.Publish and
