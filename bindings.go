@@ -23,6 +23,13 @@ type HandlerBinding struct {
 	RoutingKey   string
 	BindHeaders  amqp.Table
 	Handler      HandlerFunc
+	WorkerCount  uint
+}
+
+// WithWorkerCount sets the maximum concurrent workers for a handler.
+func (hb HandlerBinding) WithWorkerCount(c uint) HandlerBinding {
+	hb.WorkerCount = c
+	return hb
 }
 
 // DirectBinding returns a HandlerBinding to use for direct exchanges where each

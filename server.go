@@ -326,16 +326,21 @@ func (s *Server) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync
 	// Attach the middlewares to the handler.
 	handler := ServerMiddlewareChain(binding.Handler, s.middlewares...)
 
-	go s.runHandler(handler, deliveries, queueName, wg)
+	go s.runHandler(handler, deliveries, queueName, wg, binding.WorkerCount)
 
 	return consumerTag, nil
 }
 
-func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery, queueName string, wg *sync.WaitGroup) {
+func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery, queueName string, wg *sync.WaitGroup, maxWorkers uint) {
 	wg.Add(1)
 	defer wg.Done()
 
 	s.debugLog("server: waiting for messages on queue '%s'", queueName)
+
+	var guard chan struct{}
+	if maxWorkers > 0 {
+		guard = make(chan struct{}, maxWorkers)
+	}
 
 	for delivery := range deliveries {
 		// Add one delta to the wait group each time a delivery is handled so
@@ -343,6 +348,11 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 		// close the responses channel until the very last go routin handling a
 		// delivery is finished even though we handle them concurrently.
 		wg.Add(1)
+
+		// This ensures we only handle X deliveries concurrently.
+		if guard != nil {
+			guard <- struct{}{}
+		}
 
 		s.debugLog("server: got delivery on queue %v correlation id %v", queueName, delivery.CorrelationId)
 
@@ -366,6 +376,10 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 		delivery.Acknowledger = &aac
 
 		go func(delivery amqp.Delivery) {
+			if guard != nil {
+				defer func() { <-guard }()
+			}
+
 			handler(ctx, &rw, delivery)
 
 			if !aac.IsHandled() {
