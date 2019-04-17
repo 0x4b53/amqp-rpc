@@ -104,11 +104,18 @@ can be changed by calling chainable methods.
 
 ```go
 server := NewServer("amqp://guest:guest@localhost:5672").
+    WithConsumeSettings(ConsumeSettings{}).
+    WithQueueDeclareSettings(QueueDeclareSettings{}).
+    WithExchangeDeclareSettings(ExchangeDeclareSettings{}).
     WithDebugLogger(log.Printf).
     WithErrorLogger(log.Printf).
     WithDialConfig(amqp.Config{}).
     WithTLS(&tls.Config{})
 ```
+
+QoS is by default set to a prefetch count of `10` and a prefetch size of `0` (no
+limit). If you want to change this you can use the
+`WithConsumeSettings(settings)` function.
 
 ## Client
 

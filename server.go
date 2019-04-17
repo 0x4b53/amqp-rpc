@@ -99,14 +99,47 @@ func NewServer(url string) *Server {
 		dialconfig: amqp.Config{
 			Dial: DefaultDialer,
 		},
-		exchangeDelcareSettings: ExchangeDeclareSettings{Durable: true},
-		queueDeclareSettings:    QueueDeclareSettings{},
-		consumeSettings:         ConsumeSettings{},
-		errorLog:                log.Printf,                                  // use the standard logger default.
-		debugLog:                func(format string, args ...interface{}) {}, // don't print anything default.
+		errorLog: log.Printf,                                  // use the standard logger default.
+		debugLog: func(format string, args ...interface{}) {}, // don't print anything default.
 	}
 
+	server.setDefaults()
+
 	return &server
+}
+
+func (s *Server) setDefaults() {
+	s.queueDeclareSettings = QueueDeclareSettings{}
+	s.exchangeDelcareSettings = ExchangeDeclareSettings{
+		Durable: true,
+	}
+	s.consumeSettings = ConsumeSettings{
+		// Use a reasonable default value.
+		// https://www.rabbitmq.com/blog/2012/04/25/rabbitmq-performance-measurements-part-2/
+		// https://godoc.org/github.com/streadway/amqp#Channel.Qos
+		QoSPrefetchCount: 10,
+	}
+}
+
+// WithExchangeDeclareSettings sets configuration used when the server wants
+// to declare exchanges. Default settings are:
+func (s *Server) WithExchangeDeclareSettings(settings ExchangeDeclareSettings) *Server {
+	s.exchangeDelcareSettings = settings
+	return s
+}
+
+// WithQueueDeclareSettings sets configuration used when the server wants to
+// declare queues.
+func (s *Server) WithQueueDeclareSettings(settings QueueDeclareSettings) *Server {
+	s.queueDeclareSettings = settings
+	return s
+}
+
+// WithConsumeSettings sets configuration used when the server wants to start
+// consuming from a queue.
+func (s *Server) WithConsumeSettings(settings ConsumeSettings) *Server {
+	s.consumeSettings = settings
+	return s
 }
 
 // WithDialConfig sets the dial config used for the server.
@@ -226,6 +259,16 @@ func (s *Server) listenAndServe() error {
 	}
 	defer inputCh.Close()
 	defer outputCh.Close()
+
+	err = inputCh.Qos(
+		s.consumeSettings.QoSPrefetchCount,
+		s.consumeSettings.QoSPrefetchSize,
+		false,
+	)
+
+	if err != nil {
+		return err
+	}
 
 	// Notify everyone that the server has started. Runs sequentially so there
 	// isn't any race conditions when working with the connections or channels.
