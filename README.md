@@ -193,6 +193,10 @@ request := NewRequest().
 By default a `context.Background()` will be added and `WithResponse()` will be
 set to `true`.
 
+`WithTimeout` will also set the `Expiration` on the publishing since there is no
+point of handling the message after the timeout has expired. Setting
+`WithResponse(false)` will ensure that no `Expiration` is set.
+
 The `Request` also implements the `io.Writer` interface which makes it possible
 to use directly like that.
 

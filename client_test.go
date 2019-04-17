@@ -3,6 +3,7 @@ package amqprpc
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -80,6 +81,14 @@ func TestClientReconnect(t *testing.T) {
 func TestClientTimeout(t *testing.T) {
 	s := NewServer(clientTestURL)
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		expiration, _ := strconv.Atoi(d.Expiration)
+
+		if d.Headers["timeout"].(bool) {
+			assert.NotEqual(t, 0, expiration)
+		} else {
+			assert.Equal(t, 0, expiration)
+		}
+
 		time.Sleep(2 * time.Millisecond)
 	}))
 
@@ -87,30 +96,52 @@ func TestClientTimeout(t *testing.T) {
 	defer stop()
 
 	cases := []struct {
-		client  *Client
-		request *Request
+		name        string
+		client      *Client
+		request     *Request
+		wantTimeout bool
 	}{
-		// Client with timeout but no timeout on the Request.
 		{
-			client:  NewClient(clientTestURL).WithTimeout(1 * time.Millisecond),
-			request: NewRequest().WithRoutingKey("myqueue"),
+			name:        "Client with timeout but no timeout on the Request",
+			client:      NewClient(clientTestURL).WithTimeout(1 * time.Millisecond),
+			request:     NewRequest(),
+			wantTimeout: true,
 		},
-		// Request with timeout but no timeout on the Client.
 		{
-			client:  NewClient(clientTestURL),
-			request: NewRequest().WithRoutingKey("myqueue").WithTimeout(1 * time.Millisecond),
+			name:        "Request with timeout but no timeout on the Client",
+			client:      NewClient(clientTestURL),
+			request:     NewRequest().WithTimeout(1 * time.Millisecond),
+			wantTimeout: true,
 		},
-		// Request timeout overrides the Client timeout.
 		{
-			client:  NewClient(clientTestURL).WithTimeout(10 * time.Second),
-			request: NewRequest().WithRoutingKey("myqueue").WithTimeout(1 * time.Millisecond),
+			name:        "Request timeout overrides the Client timeout",
+			client:      NewClient(clientTestURL).WithTimeout(10 * time.Second),
+			request:     NewRequest().WithTimeout(1 * time.Millisecond),
+			wantTimeout: true,
+		},
+		{
+			name:        "Request without reply has no timeout",
+			client:      NewClient(clientTestURL).WithTimeout(10 * time.Second),
+			request:     NewRequest().WithResponse(false),
+			wantTimeout: false,
 		},
 	}
 
 	for _, tc := range cases {
-		response, err := tc.client.Send(tc.request)
-		assert.Equal(t, ErrTimeout, err, "error indicates timeout")
-		assert.Nil(t, response, "no response given")
+		tc.request.WriteHeader("timeout", tc.wantTimeout)
+		tc.request.WithRoutingKey("myqueue")
+
+		t.Run(tc.name, func(t *testing.T) {
+			response, err := tc.client.Send(tc.request)
+			if !tc.wantTimeout {
+				assert.Nil(t, err)
+				return
+			}
+
+			assert.Equal(t, ErrTimeout, err)
+			assert.Nil(t, response)
+		})
+
 	}
 }
 

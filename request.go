@@ -160,7 +160,9 @@ func (r *Request) AddMiddleware(m ClientMiddlewareFunc) *Request {
 // Is will also set the Expiration field for the Publishing so that amqp won't
 // hold on to the message in the queue after the timeout has happened.
 func (r *Request) startTimeout() <-chan time.Time {
-	r.Publishing.Expiration = fmt.Sprintf("%d", r.Timeout.Nanoseconds()/1e6)
+	if r.Reply {
+		r.Publishing.Expiration = fmt.Sprintf("%d", r.Timeout.Nanoseconds()/1e6)
+	}
 
 	return time.After(r.Timeout)
 }
