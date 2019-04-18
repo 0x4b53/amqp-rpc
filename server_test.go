@@ -167,7 +167,7 @@ func TestStopWhenStarting(t *testing.T) {
 func TestServerConfig(t *testing.T) {
 	s := NewServer(serverTestURL)
 	assert.NotNil(t, s)
-	assert.True(t, s.exchangeDelcareSettings.Durable)
+	assert.True(t, s.exchangeDeclareSettings.Durable)
 	assert.Equal(t, s.consumeSettings.QoSPrefetchCount, 10)
 
 	qdSettings := QueueDeclareSettings{
@@ -190,5 +190,5 @@ func TestServerConfig(t *testing.T) {
 
 	assert.Equal(t, s.queueDeclareSettings, qdSettings)
 	assert.Equal(t, s.consumeSettings, cSettings)
-	assert.Equal(t, s.exchangeDelcareSettings, eSettings)
+	assert.Equal(t, s.exchangeDeclareSettings, eSettings)
 }

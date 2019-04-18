@@ -61,9 +61,9 @@ type Server struct {
 	// include a dail function implemented in connection/dialer.go.
 	dialconfig amqp.Config
 
-	// exchangeDelcareSettings is configurations used when declaring a RabbitMQ
+	// exchangeDeclareSettings is configurations used when declaring a RabbitMQ
 	// exchange.
-	exchangeDelcareSettings ExchangeDeclareSettings
+	exchangeDeclareSettings ExchangeDeclareSettings
 
 	// queueDeclareSettings is configuration used when declaring a RabbitMQ
 	// queue.
@@ -110,7 +110,7 @@ func NewServer(url string) *Server {
 
 func (s *Server) setDefaults() {
 	s.queueDeclareSettings = QueueDeclareSettings{}
-	s.exchangeDelcareSettings = ExchangeDeclareSettings{
+	s.exchangeDeclareSettings = ExchangeDeclareSettings{
 		Durable: true,
 	}
 	s.consumeSettings = ConsumeSettings{
@@ -124,7 +124,8 @@ func (s *Server) setDefaults() {
 // WithExchangeDeclareSettings sets configuration used when the server wants
 // to declare exchanges. Default settings are:
 func (s *Server) WithExchangeDeclareSettings(settings ExchangeDeclareSettings) *Server {
-	s.exchangeDelcareSettings = settings
+	s.exchangeDeclareSettings = settings
+
 	return s
 }
 
@@ -132,6 +133,7 @@ func (s *Server) WithExchangeDeclareSettings(settings ExchangeDeclareSettings) *
 // declare queues.
 func (s *Server) WithQueueDeclareSettings(settings QueueDeclareSettings) *Server {
 	s.queueDeclareSettings = settings
+
 	return s
 }
 
@@ -139,6 +141,7 @@ func (s *Server) WithQueueDeclareSettings(settings QueueDeclareSettings) *Server
 // consuming from a queue.
 func (s *Server) WithConsumeSettings(settings ConsumeSettings) *Server {
 	s.consumeSettings = settings
+
 	return s
 }
 
@@ -192,6 +195,15 @@ finished executing.
 */
 func (s *Server) OnStarted(f OnStartedFunc) {
 	s.onStarteds = append(s.onStarteds, f)
+}
+
+// notifyStarted will notify everyone who listenst to the OnStarted event.
+// Runs sequentially so there isn't any race conditions when working with the
+// connections or channels.
+func (s *Server) notifyStarted(inputConn, outputConn *amqp.Connection, inputCh, outputCh *amqp.Channel) {
+	for _, onStarted := range s.onStarteds {
+		onStarted(inputConn, outputConn, inputCh, outputCh)
+	}
 }
 
 // Bind will add a HandlerBinding to the list of servers to serve.
@@ -250,6 +262,7 @@ func (s *Server) listenAndServe() error {
 	if err != nil {
 		return err
 	}
+
 	defer inputConn.Close()
 	defer outputConn.Close()
 
@@ -257,6 +270,7 @@ func (s *Server) listenAndServe() error {
 	if err != nil {
 		return err
 	}
+
 	defer inputCh.Close()
 	defer outputCh.Close()
 
@@ -265,29 +279,27 @@ func (s *Server) listenAndServe() error {
 		s.consumeSettings.QoSPrefetchSize,
 		false,
 	)
-
 	if err != nil {
 		return err
 	}
 
-	// Notify everyone that the server has started. Runs sequentially so there
-	// isn't any race conditions when working with the connections or channels.
-	for _, onStarted := range s.onStarteds {
-		onStarted(inputConn, outputConn, inputCh, outputCh)
-	}
+	// Notify everyone that the server has started.
+	s.notifyStarted(inputConn, outputConn, inputCh, outputCh)
 
 	// Setup a WaitGroup for use by consume(). This WaitGroup will be 0
 	// when all consumers are finished consuming messages.
 	consumersWg := sync.WaitGroup{}
 	consumersWg.Add(1) // Sync the waitgroup to this goroutine.
 
-	// consumerTags is used when we later want to tell AMQP that we want to cancel our consumers.
+	// consumerTags is used when we later want to tell AMQP that we want to
+	// cancel our consumers.
 	consumerTags, err := s.startConsumers(inputCh, &consumersWg)
 	if err != nil {
 		return err
 	}
 
-	// This WaitGroup will reach 0 when the responder() has finished sending all responses.
+	// This WaitGroup will reach 0 when the responder() has finished sending
+	// all responses.
 	responderWg := sync.WaitGroup{}
 	responderWg.Add(1) // Sync the waitgroup to this goroutine.
 
@@ -307,11 +319,9 @@ func (s *Server) listenAndServe() error {
 	s.debugLog("server: gracefully shutting down")
 
 	// 1. Tell amqp we want to shut down by canceling all the consumers.
-	for _, consumerTag := range consumerTags {
-		err = inputCh.Cancel(consumerTag, false)
-		if err != nil {
-			return err
-		}
+	err = cancelConsumers(inputCh, consumerTags)
+	if err != nil {
+		return err
 	}
 
 	// 2. We've told amqp to stop delivering messages, now we wait for all
@@ -327,7 +337,6 @@ func (s *Server) listenAndServe() error {
 
 	// 4. We have no more messages incoming and we've sent all our responses.
 	// The closing of connections and channels are defered so we can just return now.
-
 	return nil
 }
 
@@ -346,7 +355,7 @@ func (s *Server) startConsumers(inputCh *amqp.Channel, wg *sync.WaitGroup) ([]st
 }
 
 func (s *Server) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync.WaitGroup) (string, error) {
-	queueName, err := s.declareAndBind(inputCh, binding)
+	queueName, err := declareAndBind(inputCh, binding, s.queueDeclareSettings, s.exchangeDeclareSettings)
 	if err != nil {
 		return "", err
 	}
@@ -432,53 +441,6 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 	s.debugLog("server: stopped waiting for messages on queue '%s'", queueName)
 }
 
-func (s *Server) declareAndBind(inputCh *amqp.Channel, binding HandlerBinding) (string, error) {
-	queue, err := inputCh.QueueDeclare(
-		binding.QueueName,
-		s.queueDeclareSettings.Durable,
-		s.queueDeclareSettings.DeleteWhenUnused,
-		s.queueDeclareSettings.Exclusive,
-		s.queueDeclareSettings.NoWait,
-		s.queueDeclareSettings.Args,
-	)
-
-	if err != nil {
-		return "", err
-	}
-
-	if binding.ExchangeName == "" {
-		return queue.Name, nil
-	}
-
-	err = inputCh.ExchangeDeclare(
-		binding.ExchangeName,
-		binding.ExchangeType,
-		s.exchangeDelcareSettings.Durable,
-		s.exchangeDelcareSettings.AutoDelete,
-		s.exchangeDelcareSettings.Internal,
-		s.exchangeDelcareSettings.NoWait,
-		s.exchangeDelcareSettings.Args,
-	)
-
-	if err != nil {
-		return "", err
-	}
-
-	err = inputCh.QueueBind(
-		queue.Name,
-		binding.RoutingKey,
-		binding.ExchangeName,
-		s.queueDeclareSettings.NoWait, // Use same value as for declaring.
-		binding.BindHeaders,
-	)
-
-	if err != nil {
-		return "", err
-	}
-
-	return queue.Name, nil
-}
-
 func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 	wg.Add(1)
 	defer wg.Done()
@@ -521,4 +483,65 @@ func (s *Server) Stop() {
 		return
 	}
 	close(s.stopChan)
+}
+
+// cancelConsumers will cancel the specified consumers.
+func cancelConsumers(channel *amqp.Channel, consumerTags []string) error {
+	for _, consumerTag := range consumerTags {
+		err := channel.Cancel(consumerTag, false)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// declareAndBind will declare a queue, an exchange and the queue to the
+// exchange.
+func declareAndBind(inputCh *amqp.Channel, binding HandlerBinding, queueDeclareSettings QueueDeclareSettings, exchangeDeclareSettings ExchangeDeclareSettings) (string, error) {
+	queue, err := inputCh.QueueDeclare(
+		binding.QueueName,
+		queueDeclareSettings.Durable,
+		queueDeclareSettings.DeleteWhenUnused,
+		queueDeclareSettings.Exclusive,
+		queueDeclareSettings.NoWait,
+		queueDeclareSettings.Args,
+	)
+
+	if err != nil {
+		return "", err
+	}
+
+	if binding.ExchangeName == "" {
+		return queue.Name, nil
+	}
+
+	err = inputCh.ExchangeDeclare(
+		binding.ExchangeName,
+		binding.ExchangeType,
+		exchangeDeclareSettings.Durable,
+		exchangeDeclareSettings.AutoDelete,
+		exchangeDeclareSettings.Internal,
+		exchangeDeclareSettings.NoWait,
+		exchangeDeclareSettings.Args,
+	)
+
+	if err != nil {
+		return "", err
+	}
+
+	err = inputCh.QueueBind(
+		queue.Name,
+		binding.RoutingKey,
+		binding.ExchangeName,
+		queueDeclareSettings.NoWait, // Use same value as for declaring.
+		binding.BindHeaders,
+	)
+
+	if err != nil {
+		return "", err
+	}
+
+	return queue.Name, nil
 }
