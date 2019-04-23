@@ -47,12 +47,14 @@ type QueueDeclareSettings struct {
 // ConsumeSettings is the settings that will be used when the consumption
 // on a specified queue is started.
 type ConsumeSettings struct {
-	Consumer  string
-	AutoAck   bool
-	Exclusive bool
-	NoLocal   bool
-	NoWait    bool
-	Args      amqp.Table
+	Consumer         string
+	AutoAck          bool
+	Exclusive        bool
+	NoLocal          bool
+	NoWait           bool
+	Args             amqp.Table
+	QoSPrefetchCount int
+	QoSPrefetchSize  int
 }
 
 // PublishSettings is the settings that will be used when a message is about

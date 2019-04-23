@@ -163,3 +163,32 @@ func TestStopWhenStarting(t *testing.T) {
 		t.Error("Didn't succeed to close server")
 	}
 }
+
+func TestServerConfig(t *testing.T) {
+	s := NewServer(serverTestURL)
+	assert.NotNil(t, s)
+	assert.True(t, s.exchangeDeclareSettings.Durable)
+	assert.Equal(t, s.consumeSettings.QoSPrefetchCount, 10)
+
+	qdSettings := QueueDeclareSettings{
+		DeleteWhenUnused: true,
+		Durable:          true,
+	}
+	cSettings := ConsumeSettings{
+		QoSPrefetchCount: 20,
+		QoSPrefetchSize:  100,
+		Consumer:         "myconsumer",
+	}
+	eSettings := ExchangeDeclareSettings{
+		Durable:    false,
+		AutoDelete: true,
+	}
+
+	s.WithQueueDeclareSettings(qdSettings).
+		WithConsumeSettings(cSettings).
+		WithExchangeDeclareSettings(eSettings)
+
+	assert.Equal(t, s.queueDeclareSettings, qdSettings)
+	assert.Equal(t, s.consumeSettings, cSettings)
+	assert.Equal(t, s.exchangeDeclareSettings, eSettings)
+}

@@ -10,12 +10,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func traceClientMiddleware(ID int, w io.Writer) ClientMiddlewareFunc {
+func traceClientMiddleware(id int, w io.Writer) ClientMiddlewareFunc {
 	return func(next SendFunc) SendFunc {
 		return func(r *Request) (*amqp.Delivery, error) {
-			fmt.Fprint(w, ID)
+			fmt.Fprint(w, id)
 			res, err := next(r)
-			fmt.Fprint(w, ID)
+			fmt.Fprint(w, id)
 
 			return res, err
 		}

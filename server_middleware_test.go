@@ -9,12 +9,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func traceServerMiddleware(ID int) ServerMiddlewareFunc {
+func traceServerMiddleware(id int) ServerMiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
 		return func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-			fmt.Fprint(rw, ID)
+			fmt.Fprint(rw, id)
 			next(ctx, rw, d)
-			fmt.Fprint(rw, ID)
+			fmt.Fprint(rw, id)
 		}
 	}
 }

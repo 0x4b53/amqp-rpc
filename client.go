@@ -486,7 +486,6 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 		r.Timeout = c.timeout
 	}
 
-	// start the timeout counting now.
 	timeoutChan := r.startTimeout()
 
 	c.debugLog("client: queuing request %s", r.Publishing.CorrelationId)

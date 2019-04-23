@@ -104,11 +104,18 @@ can be changed by calling chainable methods.
 
 ```go
 server := NewServer("amqp://guest:guest@localhost:5672").
+    WithConsumeSettings(ConsumeSettings{}).
+    WithQueueDeclareSettings(QueueDeclareSettings{}).
+    WithExchangeDeclareSettings(ExchangeDeclareSettings{}).
     WithDebugLogger(log.Printf).
     WithErrorLogger(log.Printf).
     WithDialConfig(amqp.Config{}).
     WithTLS(&tls.Config{})
 ```
+
+QoS is by default set to a prefetch count of `10` and a prefetch size of `0` (no
+limit). If you want to change this you can use the
+`WithConsumeSettings(settings)` function.
 
 ## Client
 
@@ -185,6 +192,10 @@ request := NewRequest().
 
 By default a `context.Background()` will be added and `WithResponse()` will be
 set to `true`.
+
+`WithTimeout` will also set the `Expiration` on the publishing since there is no
+point of handling the message after the timeout has expired. Setting
+`WithResponse(false)` will ensure that no `Expiration` is set.
 
 The `Request` also implements the `io.Writer` interface which makes it possible
 to use directly like that.
