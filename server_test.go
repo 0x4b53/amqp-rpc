@@ -31,6 +31,8 @@ func TestSendWithReply(t *testing.T) {
 	defer stop()
 
 	c := NewClient(serverTestURL)
+	defer c.Stop()
+
 	request := NewRequest().WithRoutingKey("myqueue").WithBody("this is a message")
 	reply, err := c.Send(request)
 
@@ -64,6 +66,7 @@ func TestMiddleware(t *testing.T) {
 	defer stop()
 
 	c := NewClient(serverTestURL)
+	defer c.Stop()
 
 	request := NewRequest().WithRoutingKey("allowed")
 	reply, err := c.Send(request)
@@ -91,6 +94,7 @@ func TestServerReconnect(t *testing.T) {
 	defer stop()
 
 	c := NewClient(serverTestURL)
+	defer c.Stop()
 
 	for i := 0; i < 2; i++ {
 		message := fmt.Sprintf("this is message %v", i)
@@ -99,7 +103,7 @@ func TestServerReconnect(t *testing.T) {
 		assert.Nil(t, err, "no error")
 
 		conn := <-connections
-		conn.Close()
+		_ = conn.Close()
 
 		assert.Equal(t, []byte(fmt.Sprintf("Got message: %s", message)), reply.Body, "message received after reconnect")
 	}

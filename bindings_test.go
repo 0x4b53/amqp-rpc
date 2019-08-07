@@ -36,6 +36,8 @@ func TestFanout(t *testing.T) {
 	}
 
 	c := NewClient(bindingsTestURL)
+	defer c.Stop()
+
 	_, err := c.Send(NewRequest().WithExchange("fanout-exchange").WithResponse(false))
 
 	// Ensure all handlers have added to the timesCalled variable.
@@ -62,6 +64,7 @@ func TestTopic(t *testing.T) {
 
 	s := NewServer(bindingsTestURL)
 	c := NewClient(bindingsTestURL)
+	defer c.Stop()
 
 	s.Bind(TopicBinding("", "foo.#", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		wasCalled["foo.#"] <- string(d.Body)
@@ -119,6 +122,7 @@ func TestTopic(t *testing.T) {
 func TestHeaders(t *testing.T) {
 	s := NewServer(bindingsTestURL)
 	c := NewClient(bindingsTestURL)
+	defer c.Stop()
 
 	handler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "Hello, world")

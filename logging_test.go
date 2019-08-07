@@ -48,9 +48,10 @@ func TestClientLogging(t *testing.T) {
 		_, err := c.Send(NewRequest().WithRoutingKey("foobar").WithTimeout(time.Millisecond))
 		c.Stop()
 
+		assert.Error(t, err, "did not get expected error")
 		assert.Contains(t, err.Error(), "timed out")
 
-		writer.Close()
+		_ = writer.Close()
 	}()
 
 	buf, err := ioutil.ReadAll(reader)

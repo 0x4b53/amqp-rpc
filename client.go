@@ -21,6 +21,10 @@ type Client struct {
 	// we assume the request got lost.
 	timeout time.Duration
 
+	// maxRetries is the amount of times a request will be retried before
+	// giving up.
+	maxRetries int
+
 	// requests is a single channel used whenever we want to publish
 	// a message. The channel is consumed in a separate go routine which
 	// allows us to add messages to the channel that we don't want replys from
@@ -71,6 +75,9 @@ type Client struct {
 	// channel will be closed when Stop() is called.
 	stopChan chan struct{}
 
+	// didStopChan will close when the client has finished shutdown.
+	didStopChan chan struct{}
+
 	// isRunning is 1 when the server is running.
 	isRunning int32
 
@@ -114,13 +121,14 @@ func NewClient(url string) *Client {
 		replyToQueueName:   "reply-to-" + uuid.New().String(),
 		middlewares:        []ClientMiddlewareFunc{},
 		timeout:            time.Second * 10,
+		maxRetries:         10,
 		errorLog:           log.Printf,                                  // use the standard logger default.
 		debugLog:           func(format string, args ...interface{}) {}, // don't print anything default.
 	}
 
 	c.Sender = c.send
 
-	// Set default values to use when crearing channels and consumers.
+	// Set default values to use when creating channels and consumers.
 	c.setDefaults()
 
 	return c
@@ -204,6 +212,15 @@ func (c *Client) WithTimeout(t time.Duration) *Client {
 	return c
 }
 
+// WithMaxRetries sets the maximum amount of times the client will retry
+// sending the request before giving up and returning the error to the caller
+// of c.Send(). This retry will persist during reconnects.
+func (c *Client) WithMaxRetries(n int) *Client {
+	c.maxRetries = n
+
+	return c
+}
+
 // AddMiddleware will add a middleware which will be executed on request.
 func (c *Client) AddMiddleware(m ClientMiddlewareFunc) *Client {
 	c.middlewares = append(c.middlewares, m)
@@ -214,10 +231,16 @@ func (c *Client) AddMiddleware(m ClientMiddlewareFunc) *Client {
 func (c *Client) setDefaults() {
 	c.queueDeclareSettings = QueueDeclareSettings{
 		Durable:          true,
-		DeleteWhenUnused: true,
+		DeleteWhenUnused: false,
 		Exclusive:        false,
 		NoWait:           false,
-		Args:             nil,
+		Args: map[string]interface{}{
+			// Ensure the queue is deleted automatically when it's unused for
+			// more than the set time. This is to ensure that messages that
+			// are in flight during a reconnect doesn't get lost (which might
+			// happen when using `DeleteWhenUnused`).
+			"x-expires": 1 * 60 * 1000, // 1 minute.
+		},
 	}
 
 	c.consumeSettings = ConsumeSettings{
@@ -246,6 +269,7 @@ func (c *Client) runForever() {
 	}
 
 	c.stopChan = make(chan struct{})
+	c.didStopChan = make(chan struct{})
 
 	go func() {
 		for {
@@ -261,10 +285,12 @@ func (c *Client) runForever() {
 			time.Sleep(500 * time.Millisecond)
 		}
 
+		// Tell c.Close() that we have finished shutdown and that it can return.
+		close(c.didStopChan)
+
 		// Ensure we can start again.
 		atomic.StoreInt32(&c.isRunning, 0)
 	}()
-
 }
 
 // runOnce will connect amqp, setup all the amqp channels, run the publisher
@@ -352,7 +378,7 @@ func (c *Client) runPublisher(outChan *amqp.Channel, stopChan chan struct{}) {
 				// Close the outChan to ensure reconnect.
 				outChan.Close()
 
-				if request.numRetries > 0 {
+				if request.numRetries >= c.maxRetries {
 					// The message that we tried to publish is NOT added back
 					// to the queue since it never left the client. The sender
 					// will get an error back and should handle this manually!
@@ -507,13 +533,15 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	}
 }
 
-// Stop will gracefully disconnect from AMQP after draining first incoming then
-// outgoing messages. This method won't wait for server shutdown to complete,
-// you should instead wait for ListenAndServe to exit.
+// Stop will gracefully disconnect from AMQP. It is not guaranteed that all
+// in flight requests or responses are handled before the disconnect. Instead
+// the user should ensure that all calls to c.Send() has returned before calling
+// c.Stop().
 func (c *Client) Stop() {
 	if atomic.LoadInt32(&c.isRunning) != 1 {
 		return
 	}
 
 	close(c.stopChan)
+	<-c.didStopChan
 }

@@ -24,6 +24,7 @@ func Benchmark(b *testing.B) {
 	time.Sleep(1 * time.Second)
 
 	c := amqprpc.NewClient(url)
+	defer c.Stop()
 
 	b.Run("WithReplies", func(b *testing.B) {
 		b.ResetTimer()

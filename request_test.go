@@ -24,6 +24,8 @@ func TestRequest(t *testing.T) {
 	defer stop()
 
 	client := NewClient(url)
+	defer client.Stop()
+
 	assert.NotNil(t, client, "client exist")
 
 	// Test simple form.
