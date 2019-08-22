@@ -13,46 +13,30 @@ write json:
 	encoder.Encode(dataObject)
 */
 type ResponseWriter struct {
-	publishing *amqp.Publishing
-	mandatory  bool
-	immediate  bool
+	Publishing *amqp.Publishing
+	Mandatory  bool
+	Immediate  bool
 }
 
 // NewResponseWriter will create a new response writer with given amqp.Publishing.
 func NewResponseWriter(p *amqp.Publishing) *ResponseWriter {
 	return &ResponseWriter{
-		publishing: p,
+		Publishing: p,
 	}
 }
 
 // Write will write the response Body of the amqp.Publishing.
 // It is safe to call Write multiple times.
 func (rw *ResponseWriter) Write(p []byte) (int, error) {
-	rw.publishing.Body = append(rw.publishing.Body, p...)
+	rw.Publishing.Body = append(rw.Publishing.Body, p...)
 	return len(p), nil
 }
 
 // WriteHeader will write a header for the specified key.
 func (rw *ResponseWriter) WriteHeader(header string, value interface{}) {
-	if rw.publishing.Headers == nil {
-		rw.publishing.Headers = map[string]interface{}{}
+	if rw.Publishing.Headers == nil {
+		rw.Publishing.Headers = map[string]interface{}{}
 	}
 
-	rw.publishing.Headers[header] = value
-}
-
-// Publishing returns the internal amqp.Publishing that are used for the
-// response, useful for modification.
-func (rw *ResponseWriter) Publishing() *amqp.Publishing {
-	return rw.publishing
-}
-
-// Mandatory sets the mandatory flag on the later amqp.Publish.
-func (rw *ResponseWriter) Mandatory(m bool) {
-	rw.mandatory = m
-}
-
-// Immediate sets the immediate flag on the later amqp.Publish.
-func (rw *ResponseWriter) Immediate(i bool) {
-	rw.immediate = i
+	rw.Publishing.Headers[header] = value
 }

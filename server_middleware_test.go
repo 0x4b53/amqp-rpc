@@ -40,12 +40,12 @@ func TestServerMiddlewareChain(t *testing.T) {
 	)
 
 	rWriter := &ResponseWriter{
-		publishing: &amqp.Publishing{},
+		Publishing: &amqp.Publishing{},
 	}
 
 	handler(context.Background(), rWriter, amqp.Delivery{})
-	assert.Equal(t, "1234X4321", string(rWriter.Publishing().Body), "middlewares are called in correct order")
+	assert.Equal(t, "1234X4321", string(rWriter.Publishing.Body), "middlewares are called in correct order")
 
 	unevenHandler(context.Background(), rWriter, amqp.Delivery{})
-	assert.Equal(t, "1234X4321123Y321", string(rWriter.Publishing().Body), "all middlewares are called")
+	assert.Equal(t, "1234X4321123Y321", string(rWriter.Publishing.Body), "all middlewares are called")
 }

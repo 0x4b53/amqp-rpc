@@ -399,7 +399,7 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 		s.debugLog("server: got delivery on queue %v correlation id %v", queueName, delivery.CorrelationId)
 
 		rw := ResponseWriter{
-			publishing: &amqp.Publishing{
+			Publishing: &amqp.Publishing{
 				CorrelationId: delivery.CorrelationId,
 				Body:          []byte{},
 			},
@@ -428,9 +428,9 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 
 			s.responses <- processedRequest{
 				replyTo:    delivery.ReplyTo,
-				mandatory:  rw.mandatory,
-				immediate:  rw.immediate,
-				publishing: *rw.publishing,
+				mandatory:  rw.Mandatory,
+				immediate:  rw.Immediate,
+				publishing: *rw.Publishing,
 			}
 
 			// Mark the specific delivery as finished.
