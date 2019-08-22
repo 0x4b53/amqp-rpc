@@ -25,6 +25,8 @@ func TestClient(t *testing.T) {
 	defer stop()
 
 	client := NewClient("amqp://guest:guest@localhost:5672/")
+	defer client.Stop()
+
 	assert.NotNil(t, client, "client exist")
 
 	request := NewRequest().WithRoutingKey("myqueue").WithBody("client testing")
@@ -36,6 +38,7 @@ func TestClient(t *testing.T) {
 func TestClientConfig(t *testing.T) {
 	cert := Certificates{}
 	certClient := NewClient(clientTestURL).WithTLS(cert.TLSConfig())
+	defer certClient.Stop()
 
 	assert.NotNil(t, certClient, "client with certificate exist")
 
@@ -47,6 +50,7 @@ func TestClientConfig(t *testing.T) {
 		WithQueueDeclareSettings(qdSettings).
 		WithConsumeSettings(cSettings).
 		WithTimeout(2500 * time.Millisecond)
+	defer acClient.Stop()
 
 	assert.NotNil(t, acClient, "configured client exist")
 }
@@ -54,6 +58,8 @@ func TestClientConfig(t *testing.T) {
 func TestClientReconnect(t *testing.T) {
 	dialer, connections := testDialer()
 	client := NewClient(clientTestURL).WithDialConfig(amqp.Config{Dial: dialer})
+	defer client.Stop()
+
 	assert.NotNil(t, client, "client with dialer exist")
 
 	// Force a connection by calling send.
@@ -62,11 +68,11 @@ func TestClientReconnect(t *testing.T) {
 
 	// Hook into the connection, disconnect
 	conn := <-connections
-	conn.Close()
+	_ = conn.Close()
 	time.Sleep(10 * time.Millisecond)
 
 	r := NewRequest().WithBody("client testing").WithResponse(false)
-	r.numRetries = 100
+	r.numRetries = client.maxRetries + 1
 
 	_, err = client.Send(r)
 	assert.Contains(t, err.Error(), "channel/connection is not open", "disconnected client yields error")
@@ -132,6 +138,8 @@ func TestClientTimeout(t *testing.T) {
 		tc.request.WithRoutingKey("myqueue")
 
 		t.Run(tc.name, func(t *testing.T) {
+			defer tc.client.Stop()
+
 			response, err := tc.client.Send(tc.request)
 			if !tc.wantTimeout {
 				assert.Nil(t, err)
@@ -141,7 +149,6 @@ func TestClientTimeout(t *testing.T) {
 			assert.Equal(t, ErrTimeout, err)
 			assert.Nil(t, response)
 		})
-
 	}
 }
 
@@ -155,6 +162,7 @@ func TestGracefulShutdown(t *testing.T) {
 	defer stop()
 
 	c := NewClient(clientTestURL)
+	defer c.Stop()
 
 	r, err := c.Send(NewRequest().WithRoutingKey("myqueue"))
 
@@ -183,6 +191,8 @@ func TestClient_OnStarted(t *testing.T) {
 	errs := make(chan string, 4)
 
 	c := NewClient(clientTestURL)
+	defer c.Stop()
+
 	c.OnStarted(func(inC, outC *amqp.Connection, inCh, outCh *amqp.Channel) {
 		if inC == nil {
 			errs <- "inC was nil"
