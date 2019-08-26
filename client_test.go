@@ -56,32 +56,19 @@ func TestClientConfig(t *testing.T) {
 }
 
 func TestClientReconnect(t *testing.T) {
-	dialer, connections := testDialer()
-	client := NewClient(clientTestURL).WithDialConfig(amqp.Config{Dial: dialer})
+	client := NewClient(clientTestURL)
 	defer client.Stop()
 
 	assert.NotNil(t, client, "client with dialer exist")
 
 	// Force a connection by calling send.
 	_, err := client.Send(NewRequest().WithResponse(false))
-	assert.Nil(t, err, "no error from send without response")
+	assert.NoError(t, err)
 
-	// Hook into the connection, disconnect
-	conn := <-connections
-	_ = conn.Close()
-	time.Sleep(10 * time.Millisecond)
+	closeAllConnections()
 
-	r := NewRequest().WithBody("client testing").WithResponse(false)
-	r.numRetries = client.maxRetries + 1
-
-	_, err = client.Send(r)
-	assert.Contains(t, err.Error(), "channel/connection is not open", "disconnected client yields error")
-
-	// Ensure we're reconnected
-	time.Sleep(100 * time.Millisecond)
-
-	_, err = client.Send(NewRequest().WithBody("client testing").WithResponse(false))
-	assert.Nil(t, err, "retry after reconnect successful")
+	_, err = client.Send(NewRequest().WithResponse(false))
+	assert.NoError(t, err)
 }
 
 func TestClientTimeout(t *testing.T) {

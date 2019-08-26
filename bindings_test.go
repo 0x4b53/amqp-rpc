@@ -9,10 +9,7 @@ import (
 
 	"github.com/streadway/amqp"
 	"github.com/stretchr/testify/assert"
-)
-
-const (
-	bindingsTestURL = "amqp://guest:guest@localhost:5672"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFanout(t *testing.T) {
@@ -28,14 +25,14 @@ func TestFanout(t *testing.T) {
 	}
 
 	for range make([]struct{}, 3) {
-		s := NewServer(bindingsTestURL)
+		s := NewServer(serverTestURL)
 		s.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
 
 		stop := startAndWait(s)
 		defer stop()
 	}
 
-	c := NewClient(bindingsTestURL)
+	c := NewClient(serverTestURL)
 	defer c.Stop()
 
 	_, err := c.Send(NewRequest().WithExchange("fanout-exchange").WithResponse(false))
@@ -56,72 +53,37 @@ func TestFanout(t *testing.T) {
 }
 
 func TestTopic(t *testing.T) {
-	wasCalled := map[string]chan string{
-		"foo.#": make(chan string),
-		"foo.*": make(chan string),
-		"baz.*": make(chan string),
-	}
-
-	s := NewServer(bindingsTestURL)
-	c := NewClient(bindingsTestURL)
+	s := NewServer(serverTestURL)
+	c := NewClient(serverTestURL)
 	defer c.Stop()
 
+	wasCalled := make(chan struct{})
+
 	s.Bind(TopicBinding("", "foo.#", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-		wasCalled["foo.#"] <- string(d.Body)
-	}))
-	s.Bind(TopicBinding("", "foo.*", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-		wasCalled["foo.*"] <- string(d.Body)
-	}))
-	s.Bind(TopicBinding("", "baz.*", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-		wasCalled["baz.*"] <- string(d.Body)
+		wasCalled <- struct{}{}
 	}))
 
 	stop := startAndWait(s)
 	defer stop()
 
-	cases := []struct {
-		request string
-		called  map[string]bool
-	}{
-		{
-			request: "foo.bar",
-			called:  map[string]bool{"foo.#": true, "foo.*": true, "baz.*": false},
-		},
-		{
-			request: "foo.bar.baz",
-			called:  map[string]bool{"foo.#": true, "foo.*": false, "baz.*": false},
-		},
-		{
-			request: "baz.bar.foo",
-			called:  map[string]bool{"foo.#": false, "foo.*": false, "baz.*": false},
-		},
-	}
+	_, err := c.Send(NewRequest().
+		WithRoutingKey("foo.bar.baz").
+		WithExchange("amq.topic").
+		WithResponse(false))
 
-	for _, tc := range cases {
-		t.Run(tc.request, func(t *testing.T) {
-			_, err := c.Send(NewRequest().WithRoutingKey(tc.request).WithBody(tc.request).WithExchange("amq.topic").WithResponse(false))
-			assert.Nil(t, err, nil, "no errors sending topic request")
+	require.NoError(t, err)
 
-			for key, expectCalled := range tc.called {
-				select {
-				case body := <-wasCalled[key]:
-					if !expectCalled {
-						t.Errorf("%s WAS called on %s with body %s", key, tc.request, body)
-					}
-					assert.Equal(t, tc.request, body, "correct request body")
-				case <-time.After(10 * time.Millisecond):
-					if expectCalled {
-						t.Errorf("%s NOT called on %s", key, tc.request)
-					}
-				}
-			}
-		})
+	select {
+	case <-wasCalled:
+	// Yay!
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for request")
 	}
 }
 
 func TestHeaders(t *testing.T) {
-	s := NewServer(bindingsTestURL)
-	c := NewClient(bindingsTestURL)
+	s := NewServer(serverTestURL)
+	c := NewClient(serverTestURL)
 	defer c.Stop()
 
 	handler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {

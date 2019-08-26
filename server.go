@@ -118,6 +118,9 @@ func (s *Server) setDefaults() {
 		// https://www.rabbitmq.com/blog/2012/04/25/rabbitmq-performance-measurements-part-2/
 		// https://godoc.org/github.com/streadway/amqp#Channel.Qos
 		QoSPrefetchCount: 10,
+
+		// Default to letting the AMQP server auto-ack the deliveries.
+		AutoAck: true,
 	}
 }
 
@@ -141,6 +144,13 @@ func (s *Server) WithQueueDeclareSettings(settings QueueDeclareSettings) *Server
 // consuming from a queue.
 func (s *Server) WithConsumeSettings(settings ConsumeSettings) *Server {
 	s.consumeSettings = settings
+
+	return s
+}
+
+// WithAutoAck sets the AMQP servers auto-ack mode.
+func (s *Server) WithAutoAck(b bool) *Server {
+	s.consumeSettings.AutoAck = b
 
 	return s
 }
@@ -407,24 +417,8 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 
 		ctx := context.WithValue(context.Background(), CtxQueueName, queueName)
 
-		// Use the default provided Acknowledger for the delivery
-		// (amqp.Channel) and add our ack aware acknowledger which can tell if
-		// a message has been acknowledged (ack, nack or rejected).
-		aac := ackAwareChannel{
-			ch:      delivery.Acknowledger,
-			handled: false,
-		}
-
-		delivery.Acknowledger = &aac
-
 		go func(delivery amqp.Delivery) {
 			handler(ctx, &rw, delivery)
-
-			if !aac.IsHandled() {
-				if err := delivery.Ack(false); err != nil {
-					s.errorLog("could not ack message: %s", err.Error())
-				}
-			}
 
 			s.responses <- processedRequest{
 				replyTo:    delivery.ReplyTo,
