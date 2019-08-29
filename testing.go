@@ -83,7 +83,7 @@ func deleteQueue(name string) {
 	_ = resp.Body.Close()
 }
 
-func closeAllConnections() {
+func closeConnections(names ...string) {
 	connectionsURL := fmt.Sprintf("%s/connections", serverAPITestURL)
 	var connections []map[string]interface{}
 
@@ -110,6 +110,19 @@ func closeAllConnections() {
 	}
 
 	for _, conn := range connections {
+		// Should we close this connection?
+		shouldRemove := false
+		for _, name := range names {
+			if conn["user_provided_name"] == name {
+				shouldRemove = true
+				break
+			}
+		}
+
+		if !shouldRemove {
+			continue
+		}
+
 		connectionURL := fmt.Sprintf("%s/connections/%s", serverAPITestURL, url.PathEscape(conn["name"].(string)))
 
 		req, err := http.NewRequest("DELETE", connectionURL, nil)

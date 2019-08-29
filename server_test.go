@@ -123,6 +123,11 @@ func TestMiddleware(t *testing.T) {
 
 func TestServerReconnect(t *testing.T) {
 	s := NewServer(serverTestURL).
+		WithDialConfig(amqp.Config{
+			Properties: amqp.Table{
+				"connection_name": "server-reconnect-test",
+			},
+		}).
 		WithAutoAck(false)
 
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
@@ -141,7 +146,7 @@ func TestServerReconnect(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []byte("Hello"), reply.Body)
 
-	closeAllConnections()
+	closeConnections("server-reconnect-test")
 
 	request = NewRequest().WithRoutingKey("myqueue")
 	reply, err = c.Send(request)
