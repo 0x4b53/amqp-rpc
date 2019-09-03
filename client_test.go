@@ -3,12 +3,14 @@ package amqprpc
 import (
 	"context"
 	"fmt"
+	"net"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/streadway/amqp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -56,32 +58,57 @@ func TestClientConfig(t *testing.T) {
 }
 
 func TestClientReconnect(t *testing.T) {
-	dialer, connections := testDialer()
-	client := NewClient(clientTestURL).WithDialConfig(amqp.Config{Dial: dialer})
+	client := NewClient(clientTestURL).WithDialConfig(amqp.Config{
+		Properties: amqp.Table{
+			"connection_name": "client-reconnect-test",
+		},
+	})
 	defer client.Stop()
 
 	assert.NotNil(t, client, "client with dialer exist")
 
 	// Force a connection by calling send.
 	_, err := client.Send(NewRequest().WithResponse(false))
-	assert.Nil(t, err, "no error from send without response")
+	assert.NoError(t, err)
 
-	// Hook into the connection, disconnect
-	conn := <-connections
-	_ = conn.Close()
-	time.Sleep(10 * time.Millisecond)
+	closeConnections("client-reconnect-test")
 
-	r := NewRequest().WithBody("client testing").WithResponse(false)
-	r.numRetries = client.maxRetries + 1
+	_, err = client.Send(NewRequest().WithResponse(false))
+	assert.NoError(t, err)
+}
 
-	_, err = client.Send(r)
-	assert.Contains(t, err.Error(), "channel/connection is not open", "disconnected client yields error")
+func TestClientRetry(t *testing.T) {
+	var conn net.Conn
+	dialFunc := func(network, addr string) (net.Conn, error) {
+		var err error
+		conn, err = amqp.DefaultDial(1*time.Second)(network, addr)
 
-	// Ensure we're reconnected
-	time.Sleep(100 * time.Millisecond)
+		return conn, err
+	}
 
-	_, err = client.Send(NewRequest().WithBody("client testing").WithResponse(false))
-	assert.Nil(t, err, "retry after reconnect successful")
+	client := NewClient(clientTestURL).
+		WithDialConfig(amqp.Config{Dial: dialFunc}).
+		WithMaxRetries(2)
+
+	defer client.Stop()
+
+	_, err := client.Send(NewRequest().WithResponse(false))
+	require.NoError(t, err)
+
+	// Closing only for writing ensures that the amqp.Connection doesn't know
+	// that it's been closed.
+	require.NoError(t, conn.(*net.TCPConn).CloseWrite())
+
+	_, err = client.Send(NewRequest().WithResponse(false))
+	require.NoError(t, err)
+
+	req := NewRequest().WithResponse(false)
+	req.numRetries = 2 // Simulate that we've already retried this one.
+
+	require.NoError(t, conn.(*net.TCPConn).CloseWrite())
+
+	_, err = client.Send(req)
+	require.Error(t, err)
 }
 
 func TestClientTimeout(t *testing.T) {

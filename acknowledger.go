@@ -4,32 +4,34 @@ import (
 	"github.com/streadway/amqp"
 )
 
-// ackAwareChannel implements the amqp.Acknowledger interface with the addition
-// that it can tell if a message has been acked, nacked or rejected.
-type ackAwareChannel struct {
-	ch      amqp.Acknowledger
-	handled bool
+// AwareAcknowledger implements the amqp.Acknowledger interface with the
+// addition that it can tell if a message has been acked in any way.
+type AwareAcknowledger struct {
+	Acknowledger amqp.Acknowledger
+	Handled      bool
 }
 
-func (a *ackAwareChannel) Ack(tag uint64, multiple bool) error {
-	a.handled = true
-
-	return a.ch.Ack(tag, multiple)
+// NewAwareAcknowledger returns the passed acknowledger as an AwareAcknowledger.
+func NewAwareAcknowledger(acknowledger amqp.Acknowledger) *AwareAcknowledger {
+	return &AwareAcknowledger{
+		Acknowledger: acknowledger,
+	}
 }
 
-func (a *ackAwareChannel) Nack(tag uint64, multiple bool, requeue bool) error {
-	a.handled = true
-
-	return a.ch.Nack(tag, multiple, requeue)
+// Ack passes the Ack down to the underlying Acknowledger.
+func (a *AwareAcknowledger) Ack(tag uint64, multiple bool) error {
+	a.Handled = true
+	return a.Acknowledger.Ack(tag, multiple)
 }
 
-func (a *ackAwareChannel) Reject(tag uint64, requeue bool) error {
-	a.handled = true
-
-	return a.ch.Reject(tag, requeue)
+// Nack passes the Nack down to the underlying Acknowledger.
+func (a *AwareAcknowledger) Nack(tag uint64, multiple bool, requeue bool) error {
+	a.Handled = true
+	return a.Acknowledger.Nack(tag, multiple, requeue)
 }
 
-// IsHandled returns a boolean value telling if the acknowledger has been called.
-func (a *ackAwareChannel) IsHandled() bool {
-	return a.handled
+// Reject passes the Reject down to the underlying Acknowledger.
+func (a *AwareAcknowledger) Reject(tag uint64, requeue bool) error {
+	a.Handled = true
+	return a.Acknowledger.Reject(tag, requeue)
 }

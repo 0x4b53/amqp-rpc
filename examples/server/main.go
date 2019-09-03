@@ -16,10 +16,11 @@ import (
 )
 
 func main() {
-	s := amqprpc.NewServer("amqp://guest:guest@localhost:5672/").AddMiddleware(amqprpcmw.PanicRecovery)
-
 	debugLogger := log.New(os.Stdout, "DEBUG - ", log.LstdFlags)
 	errorLogger := log.New(os.Stdout, "ERROR - ", log.LstdFlags)
+
+	s := amqprpc.NewServer("amqp://guest:guest@localhost:5672/").
+		AddMiddleware(amqprpcmw.PanicRecoveryLogging(errorLogger.Printf))
 
 	s.WithErrorLogger(errorLogger.Printf)
 	s.WithDebugLogger(debugLogger.Printf)

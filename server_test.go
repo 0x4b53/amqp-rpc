@@ -8,10 +8,7 @@ import (
 
 	"github.com/streadway/amqp"
 	"github.com/stretchr/testify/assert"
-)
-
-const (
-	serverTestURL = "amqp://guest:guest@localhost:5672/"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSendWithReply(t *testing.T) {
@@ -38,6 +35,49 @@ func TestSendWithReply(t *testing.T) {
 
 	assert.Nil(t, err, "client exist")
 	assert.Equal(t, []byte("Got message: this is a message"), reply.Body, "got reply")
+}
+
+func TestNoAutomaticAck(t *testing.T) {
+	deleteQueue("no-auto-ack") // Ensure queue is clean from the start.
+
+	s := NewServer(serverTestURL).WithAutoAck(false)
+
+	calls := make(chan struct{}, 2)
+
+	s.Bind(DirectBinding("no-auto-ack", func(ctc context.Context, responseWriter *ResponseWriter, d amqp.Delivery) {
+		calls <- struct{}{}
+	}))
+
+	stop := startAndWait(s)
+
+	c := NewClient(serverTestURL)
+	defer c.Stop()
+
+	request := NewRequest().WithRoutingKey("no-auto-ack").WithResponse(false)
+	_, err := c.Send(request)
+	require.NoError(t, err)
+
+	// Wait for the first message to arrive.
+	select {
+	case <-calls:
+		// We got the message, now we stop the server without having acked the
+		// delivery.
+		stop()
+	case <-time.After(10 * time.Second):
+		t.Fatal("wait time exeeded")
+	}
+
+	// Restart the server. This should make RabbitMQ deliver the delivery
+	// again.
+	stop = startAndWait(s)
+	defer stop()
+
+	select {
+	case <-calls:
+		// Nice!
+	case <-time.After(10 * time.Second):
+		t.Fatal("wait time exeeded")
+	}
 }
 
 func TestMiddleware(t *testing.T) {
@@ -82,12 +122,17 @@ func TestMiddleware(t *testing.T) {
 }
 
 func TestServerReconnect(t *testing.T) {
-	dialer, connections := testDialer()
-	s := NewServer(serverTestURL).WithDialConfig(amqp.Config{Dial: dialer})
+	s := NewServer(serverTestURL).
+		WithDialConfig(amqp.Config{
+			Properties: amqp.Table{
+				"connection_name": "server-reconnect-test",
+			},
+		}).
+		WithAutoAck(false)
 
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-		time.Sleep(10 * time.Millisecond)
-		fmt.Fprintf(rw, "Got message: %s", d.Body)
+		_ = d.Ack(false)
+		fmt.Fprintf(rw, "Hello")
 	}))
 
 	stop := startAndWait(s)
@@ -96,17 +141,17 @@ func TestServerReconnect(t *testing.T) {
 	c := NewClient(serverTestURL)
 	defer c.Stop()
 
-	for i := 0; i < 2; i++ {
-		message := fmt.Sprintf("this is message %v", i)
-		request := NewRequest().WithRoutingKey("myqueue").WithBody(message)
-		reply, err := c.Send(request)
-		assert.Nil(t, err, "no error")
+	request := NewRequest().WithRoutingKey("myqueue")
+	reply, err := c.Send(request)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("Hello"), reply.Body)
 
-		conn := <-connections
-		_ = conn.Close()
+	closeConnections("server-reconnect-test")
 
-		assert.Equal(t, []byte(fmt.Sprintf("Got message: %s", message)), reply.Body, "message received after reconnect")
-	}
+	request = NewRequest().WithRoutingKey("myqueue")
+	reply, err = c.Send(request)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("Hello"), reply.Body)
 }
 
 func TestServerOnStarted(t *testing.T) {

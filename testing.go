@@ -1,40 +1,44 @@
 package amqprpc
 
 import (
-	"net"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/streadway/amqp"
 )
 
-// testDialer returns a dialing function that can be passed to amqp.Config as
-// the Dial function. It also returns a function that can be used to get the
-// net.Conn object used by amqp to connect.
-// nolint: deadcode,megacheck
-func testDialer() (func(string, string) (net.Conn, error), chan net.Conn) {
-	var (
-		conn net.Conn
-		ch   = make(chan net.Conn, 100)
-	)
+const (
+	serverTestURL    = "amqp://guest:guest@localhost:5672/"
+	serverAPITestURL = "http://guest:guest@localhost:15672/api"
+)
 
-	return func(network, addr string) (net.Conn, error) {
-		var err error
+// MockAcknowledger is a mocked amqp.Acknowledger, useful for tests.
+type MockAcknowledger struct {
+	Acks    int
+	Nacks   int
+	Rejects int
+}
 
-		conn, err = net.DialTimeout(network, addr, 2*time.Second)
-		if err != nil {
-			return nil, err
-		}
-		// Heartbeating hasn't started yet, don't stall forever on a dead server.
-		// A deadline is set for TLS and AMQP handshaking. After AMQP is established,
-		// the deadline is cleared in openComplete.
-		if err = conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
-			return nil, err
-		}
+// Ack increases Acks.
+func (ma *MockAcknowledger) Ack(tag uint64, multiple bool) error {
+	ma.Acks++
+	return nil
+}
 
-		ch <- conn
-		return conn, nil
-	}, ch
+// Nack increases Nacks.
+func (ma *MockAcknowledger) Nack(tag uint64, multiple bool, requeue bool) error {
+	ma.Nacks++
+	return nil
+}
+
+// Reject increases Rejects.
+func (ma *MockAcknowledger) Reject(tag uint64, requeue bool) error {
+	ma.Rejects++
+	return nil
 }
 
 // startAndWait will start s by running ListenAndServe, it will then block
@@ -60,5 +64,78 @@ func startAndWait(s *Server) func() {
 	return func() {
 		s.Stop()
 		<-done
+	}
+}
+
+func deleteQueue(name string) {
+	queueURL := fmt.Sprintf("%s/queues/%s/%s", serverAPITestURL, url.PathEscape("/"), url.PathEscape(name))
+
+	req, err := http.NewRequest("DELETE", queueURL, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		panic(err)
+	}
+
+	_ = resp.Body.Close()
+}
+
+func closeConnections(names ...string) {
+	connectionsURL := fmt.Sprintf("%s/connections", serverAPITestURL)
+	var connections []map[string]interface{}
+
+	// It takes a while (0.5s - 4s) for the management plugin to discover the
+	// connections so we loop until we've found some.
+	for i := 0; i < 20; i++ {
+		resp, err := http.Get(connectionsURL) // nolint: gosec
+		if err != nil {
+			panic(err)
+		}
+
+		err = json.NewDecoder(resp.Body).Decode(&connections)
+		_ = resp.Body.Close()
+		if err != nil {
+			panic(err)
+		}
+
+		if len(connections) == 0 {
+			time.Sleep(time.Duration(i*100) * time.Millisecond)
+			continue
+		}
+
+		break
+	}
+
+	for _, conn := range connections {
+		// Should we close this connection?
+		shouldRemove := false
+		for _, name := range names {
+			if conn["user_provided_name"] == name {
+				shouldRemove = true
+				break
+			}
+		}
+
+		if !shouldRemove {
+			continue
+		}
+
+		connectionURL := fmt.Sprintf("%s/connections/%s", serverAPITestURL, url.PathEscape(conn["name"].(string)))
+
+		req, err := http.NewRequest("DELETE", connectionURL, nil)
+		if err != nil {
+			panic(err)
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			panic(err)
+		}
+		_ = resp.Body.Close()
+
+		fmt.Println("closed", conn["name"])
 	}
 }

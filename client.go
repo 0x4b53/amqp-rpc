@@ -325,7 +325,7 @@ func (c *Client) runOnce() error {
 		return err
 	}
 
-	go c.runPublisher(outputCh, c.stopChan)
+	go c.runPublisher(outputCh)
 
 	err = monitorAndWait(
 		c.stopChan,
@@ -345,13 +345,24 @@ func (c *Client) runOnce() error {
 // amqp exchange. The method will stop consuming if the underlying amqp channel
 // is closed for any reason, and when this happens the messages will be put back
 // in chan requests unless we have retried to many times.
-func (c *Client) runPublisher(outChan *amqp.Channel, stopChan chan struct{}) {
+func (c *Client) runPublisher(outChan *amqp.Channel) {
 	c.debugLog("client: running publisher...")
+
+	// Monitor the closing of this channel. We need to do this in a separate,
+	// goroutine to ensure we won't get a deadlock inside the select below
+	// which can itself close this channel.
+	onClose := make(chan struct{})
+	go func() {
+		<-outChan.NotifyClose(make(chan *amqp.Error))
+		close(onClose)
+	}()
 
 	for {
 		select {
-		case <-stopChan:
-			c.debugLog("client: publisher stopped after stop chan was closed")
+		case <-onClose:
+			// The channels for publishing responses was closed, once the
+			// client has started again. This loop will be restarted.
+			c.debugLog("client: publisher stopped after channel was closed")
 			return
 
 		case request := <-c.requests:
