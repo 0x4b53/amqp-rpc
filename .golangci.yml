@@ -152,6 +152,7 @@ linters:
     - nakedret
     - prealloc
     - scopelint
+    - funlen
   disable-all: false
   # presets:
   #   - bugs
