@@ -18,6 +18,7 @@ import (
 
 func TestTLS(t *testing.T) {
 	tempCert, tempKey := createCertificateFiles()
+
 	defer func() {
 		os.Remove(tempCert)
 		os.Remove(tempKey)

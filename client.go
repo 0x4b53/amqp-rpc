@@ -304,6 +304,7 @@ func (c *Client) runOnce() error {
 	if err != nil {
 		return err
 	}
+
 	defer inputConn.Close()
 	defer outputConn.Close()
 
@@ -311,6 +312,7 @@ func (c *Client) runOnce() error {
 	if err != nil {
 		return err
 	}
+
 	defer inputCh.Close()
 	defer outputCh.Close()
 
@@ -352,6 +354,7 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 	// goroutine to ensure we won't get a deadlock inside the select below
 	// which can itself close this channel.
 	onClose := make(chan struct{})
+
 	go func() {
 		<-outChan.NotifyClose(make(chan *amqp.Error))
 		close(onClose)
@@ -364,7 +367,6 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 			// client has started again. This loop will be restarted.
 			c.debugLog("client: publisher stopped after channel was closed")
 			return
-
 		case request := <-c.requests:
 			replyToQueueName := ""
 
@@ -409,6 +411,7 @@ func (c *Client) runPublisher(outChan *amqp.Channel) {
 				}
 
 				c.errorLog("client: publisher stopped because of error, %s", request.Publishing.CorrelationId)
+
 				return
 			}
 

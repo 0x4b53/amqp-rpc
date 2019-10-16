@@ -45,7 +45,6 @@ func TestFanout(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Error("fanoutHandler was not called")
 		}
-
 	}
 
 	assert.Nil(err, "no errors occurred")
@@ -55,6 +54,7 @@ func TestFanout(t *testing.T) {
 func TestTopic(t *testing.T) {
 	s := NewServer(serverTestURL)
 	c := NewClient(serverTestURL)
+
 	defer c.Stop()
 
 	wasCalled := make(chan struct{})
@@ -84,6 +84,7 @@ func TestTopic(t *testing.T) {
 func TestHeaders(t *testing.T) {
 	s := NewServer(serverTestURL)
 	c := NewClient(serverTestURL)
+
 	defer c.Stop()
 
 	handler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {

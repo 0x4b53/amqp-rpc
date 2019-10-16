@@ -183,7 +183,6 @@ func TestServerOnStarted(t *testing.T) {
 		if ok {
 			t.Fatal(e)
 		}
-
 	case <-time.After(time.Second):
 		t.Error("OnStarted was never called")
 	}
@@ -191,8 +190,8 @@ func TestServerOnStarted(t *testing.T) {
 
 func TestStopWhenStarting(t *testing.T) {
 	s := NewServer("amqp://guest:guest@wont-connect.com:5672")
-
 	done := make(chan struct{})
+
 	go func() {
 		s.ListenAndServe()
 		close(done)

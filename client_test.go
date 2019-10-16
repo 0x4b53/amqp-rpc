@@ -39,6 +39,7 @@ func TestClient(t *testing.T) {
 
 func TestClientConfig(t *testing.T) {
 	cert := Certificates{}
+
 	certClient := NewClient(clientTestURL).WithTLS(cert.TLSConfig())
 	defer certClient.Stop()
 
@@ -79,6 +80,7 @@ func TestClientReconnect(t *testing.T) {
 
 func TestClientRetry(t *testing.T) {
 	var conn net.Conn
+
 	dialFunc := func(network, addr string) (net.Conn, error) {
 		var err error
 		conn, err = amqp.DefaultDial(1*time.Second)(network, addr)

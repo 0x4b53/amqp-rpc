@@ -57,7 +57,6 @@ func main() {
 	}
 
 	fmt.Printf("%-10s %d: this request got custom body '%s'\n", "Request", 4, resp.Body)
-
 }
 
 func handlePassword(next amqprpc.SendFunc) amqprpc.SendFunc {
