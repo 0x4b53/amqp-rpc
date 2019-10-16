@@ -10,6 +10,7 @@ import (
 	"github.com/streadway/amqp"
 )
 
+// nolint: gochecknoglobals
 var timesCalled = 0
 
 func main() {
@@ -26,7 +27,9 @@ func main() {
 	s1.Bind(amqprpc.DirectBinding("times_called", timesCalledHandler))
 
 	go s1.ListenAndServe()
+
 	go s2.ListenAndServe()
+
 	go s3.ListenAndServe()
 
 	time.Sleep(1 * time.Second)

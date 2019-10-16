@@ -19,6 +19,7 @@ func TestPanicRecovery(t *testing.T) {
 		assert.Equal(t, "oopsie!", r)
 		assert.Equal(t, responseWriter, rw)
 		assert.Equal(t, delivery, d)
+
 		called = true
 	}
 

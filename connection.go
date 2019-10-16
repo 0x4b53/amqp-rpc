@@ -94,6 +94,7 @@ func createConnections(url string, config amqp.Config) (*amqp.Connection, *amqp.
 		conn2 *amqp.Connection
 		err   error
 	)
+
 	conn1, err = amqp.DialConfig(url, config)
 	if err != nil {
 		return nil, nil, err

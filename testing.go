@@ -47,6 +47,7 @@ func (ma *MockAcknowledger) Reject(tag uint64, requeue bool) error {
 func startAndWait(s *Server) func() {
 	started := make(chan struct{})
 	once := sync.Once{}
+
 	s.OnStarted(func(_, _ *amqp.Connection, _, _ *amqp.Channel) {
 		once.Do(func() {
 			close(started)
@@ -54,6 +55,7 @@ func startAndWait(s *Server) func() {
 	})
 
 	done := make(chan struct{})
+
 	go func() {
 		s.ListenAndServe()
 		close(done)
@@ -84,8 +86,10 @@ func deleteQueue(name string) {
 }
 
 func closeConnections(names ...string) {
-	connectionsURL := fmt.Sprintf("%s/connections", serverAPITestURL)
-	var connections []map[string]interface{}
+	var (
+		connectionsURL = fmt.Sprintf("%s/connections", serverAPITestURL)
+		connections    []map[string]interface{}
+	)
 
 	// It takes a while (0.5s - 4s) for the management plugin to discover the
 	// connections so we loop until we've found some.
@@ -96,10 +100,11 @@ func closeConnections(names ...string) {
 		}
 
 		err = json.NewDecoder(resp.Body).Decode(&connections)
-		_ = resp.Body.Close()
 		if err != nil {
 			panic(err)
 		}
+
+		_ = resp.Body.Close()
 
 		if len(connections) == 0 {
 			time.Sleep(time.Duration(i*100) * time.Millisecond)
@@ -112,6 +117,7 @@ func closeConnections(names ...string) {
 	for _, conn := range connections {
 		// Should we close this connection?
 		shouldRemove := false
+
 		for _, name := range names {
 			if conn["user_provided_name"] == name {
 				shouldRemove = true
@@ -134,6 +140,7 @@ func closeConnections(names ...string) {
 		if err != nil {
 			panic(err)
 		}
+
 		_ = resp.Body.Close()
 
 		fmt.Println("closed", conn["name"])

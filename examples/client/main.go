@@ -21,6 +21,7 @@ func main() {
 
 	for {
 		fmt.Print("Enter text: ")
+
 		text, _ := reader.ReadString('\n')
 		request := amqprpc.NewRequest().WithRoutingKey("upper").WithBody(text)
 
@@ -40,9 +41,11 @@ func heartbeat(c *amqprpc.Client) {
 				WithBody(time.Now().String()).
 				WithTimeout(100 * time.Millisecond),
 		)
+
 		if err != nil {
 			fmt.Println("Heartbeat error: ", err)
 		}
+
 		time.Sleep(1 * time.Second)
 	}
 }

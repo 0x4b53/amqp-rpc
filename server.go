@@ -254,6 +254,7 @@ func (s *Server) ListenAndServe() {
 		}
 
 		s.debugLog("server: listener exiting gracefully")
+
 		break
 	}
 
@@ -352,6 +353,7 @@ func (s *Server) listenAndServe() error {
 
 func (s *Server) startConsumers(inputCh *amqp.Channel, wg *sync.WaitGroup) ([]string, error) {
 	consumerTags := []string{}
+
 	for _, binding := range s.bindings {
 		consumerTag, err := s.consume(binding, inputCh, wg)
 		if err != nil {
@@ -464,6 +466,7 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 				response.replyTo, response.publishing.CorrelationId, err.Error(),
 			)
 			s.responses <- response
+
 			return
 		}
 	}
@@ -476,6 +479,7 @@ func (s *Server) Stop() {
 	if atomic.LoadInt32(&s.isRunning) == 0 {
 		return
 	}
+
 	close(s.stopChan)
 }
 
