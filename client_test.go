@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,7 +27,7 @@ func TestClient(t *testing.T) {
 	stop := startAndWait(s)
 	defer stop()
 
-	client := NewClient("amqp://guest:guest@localhost:5672/")
+	client := NewClient(clientTestURL)
 	defer client.Stop()
 
 	assert.NotNil(t, client, "client exist")
@@ -35,6 +36,57 @@ func TestClient(t *testing.T) {
 	response, err := client.Send(request)
 	assert.Nil(t, err, "no errors from sending")
 	assert.Equal(t, []byte("Got message: client testing"), response.Body, "correct body in response")
+}
+
+func TestClientStopWhenCannotStart(t *testing.T) {
+	client := NewClient("amqp://guest:guest@example:1234/")
+
+	assert.NotNil(t, client, "client exist")
+
+	request := NewRequest().
+		WithTimeout(10 * time.Millisecond).
+		WithResponse(false)
+
+	_, err := client.Send(request)
+	assert.Error(t, err)
+
+	var stopped sync.WaitGroup
+
+	stopped.Add(1)
+
+	go func() {
+		client.Stop()
+		stopped.Done()
+	}()
+
+	assert.Eventually(t, func() bool {
+		stopped.Wait()
+		return true
+	},
+		1*time.Second,
+		500*time.Millisecond,
+	)
+}
+
+func TestClientStopWhenNeverStarted(t *testing.T) {
+	client := NewClient(clientTestURL)
+
+	var stopped sync.WaitGroup
+
+	stopped.Add(1)
+
+	go func() {
+		client.Stop()
+		stopped.Done()
+	}()
+
+	assert.Eventually(t, func() bool {
+		stopped.Wait()
+		return true
+	},
+		1*time.Second,
+		500*time.Millisecond,
+	)
 }
 
 func TestClientConfig(t *testing.T) {
@@ -159,6 +211,18 @@ func TestClientTimeout(t *testing.T) {
 			client:      NewClient(clientTestURL).WithTimeout(10 * time.Second),
 			request:     NewRequest().WithResponse(false),
 			wantTimeout: false,
+		},
+		{
+			name:        "Client not being able to connect causes real timeout error",
+			client:      NewClient("amqp://guest:guest@example:1234/").WithTimeout(1 * time.Millisecond),
+			request:     NewRequest().WithResponse(false),
+			wantTimeout: true,
+		},
+		{
+			name:        "Client with response not being able to connect causes real timeout error",
+			client:      NewClient("amqp://guest:guest@example:1234/").WithTimeout(1 * time.Millisecond),
+			request:     NewRequest().WithResponse(true),
+			wantTimeout: true,
 		},
 	}
 

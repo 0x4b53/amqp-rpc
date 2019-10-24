@@ -81,6 +81,9 @@ type Client struct {
 	// isRunning is 1 when the server is running.
 	isRunning int32
 
+	// wantStop tells the runForever function to exit even on connection errors.
+	wantStop int32
+
 	// errorLog specifies an optional logger for amqp errors, unexpected
 	// behavior etc. If nil, logging is done via the log package's standard
 	// logger.
@@ -268,6 +271,9 @@ func (c *Client) runForever() {
 		return
 	}
 
+	// Always assume that we don't want to stop initially.
+	atomic.StoreInt32(&c.wantStop, 0)
+
 	c.stopChan = make(chan struct{})
 	c.didStopChan = make(chan struct{})
 
@@ -278,6 +284,11 @@ func (c *Client) runForever() {
 			err := c.runOnce()
 			if err == nil {
 				c.debugLog("client: finished gracefully")
+				break
+			}
+
+			if atomic.LoadInt32(&c.wantStop) == 1 {
+				c.debugLog("client: finished with error %s", err.Error())
 				break
 			}
 
@@ -529,7 +540,16 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	timeoutChan := r.startTimeout()
 
 	c.debugLog("client: queuing request %s", r.Publishing.CorrelationId)
-	c.requests <- r
+
+	select {
+	case c.requests <- r:
+		// successful send.
+	case <-timeoutChan:
+		c.debugLog("client: timeout while waiting for request queue %s", r.Publishing.CorrelationId)
+
+		return nil, ErrTimeout
+	}
+
 	c.debugLog("client: waiting for reply of %s", r.Publishing.CorrelationId)
 
 	// All responses are published on the requests response channel. Hang here
@@ -555,6 +575,8 @@ func (c *Client) Stop() {
 	if atomic.LoadInt32(&c.isRunning) != 1 {
 		return
 	}
+
+	atomic.StoreInt32(&c.wantStop, 1)
 
 	close(c.stopChan)
 	<-c.didStopChan
