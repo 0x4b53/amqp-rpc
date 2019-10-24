@@ -10,7 +10,7 @@ addons:
       - rabbitmq-server
 env:
   global:
-    - CC_TEST_REPORTER_ID=19911b8a2aa8aee6febf2f0d960d66b028a6c32a3aaa41a7a785434b2946c8d7
+    - CC_TEST_REPORTER_ID=7d839e0bef19ceb83a38550bc5e651070cd1c15279069a90bdbaaad727d7c0cd
     - AMQP_URL=amqp://guest:guest@127.0.0.1:5672/
     - GO111MODULE=on
 
