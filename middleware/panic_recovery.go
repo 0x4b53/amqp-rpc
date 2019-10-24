@@ -5,7 +5,7 @@ import (
 
 	"github.com/streadway/amqp"
 
-	amqprpc "github.com/bombsimon/amqp-rpc"
+	amqprpc "github.com/0x4b53/amqp-rpc"
 )
 
 // PanicRecovery is a middleware that will recover any panics caused by a

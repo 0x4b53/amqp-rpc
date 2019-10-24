@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/streadway/amqp"
 
-	amqprpc "github.com/bombsimon/amqp-rpc" // nolint: goimports
+	amqprpc "github.com/0x4b53/amqp-rpc" // nolint: goimports
 )
 
 const (
