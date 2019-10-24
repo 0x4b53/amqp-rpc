@@ -8,23 +8,23 @@
 <h4 align="center">RabbitMQ RPC Framework</h4>
 
 <p align="center">
-  <a href="https://godoc.org/github.com/bombsimon/amqp-rpc">
-    <img src="https://godoc.org/github.com/bombsimon/amqp-rpc?status.svg" alt="GoDoc">
+  <a href="https://godoc.org/github.com/0x4b53/amqp-rpc">
+    <img src="https://godoc.org/github.com/0x4b53/amqp-rpc?status.svg" alt="GoDoc">
   </a>
-  <a href="https://travis-ci.org/bombsimon/amqp-rpc">
-    <img src="https://travis-ci.org/bombsimon/amqp-rpc.svg?branch=master">
+  <a href="https://travis-ci.org/0x4b53/amqp-rpc">
+    <img src="https://travis-ci.org/0x4b53/amqp-rpc.svg?branch=master">
   </a>
-  <a href="https://goreportcard.com/report/github.com/bombsimon/amqp-rpc">
-    <img src="https://goreportcard.com/badge/github.com/bombsimon/amqp-rpc">
+  <a href="https://goreportcard.com/report/github.com/0x4b53/amqp-rpc">
+    <img src="https://goreportcard.com/badge/github.com/0x4b53/amqp-rpc">
   </a>
-  <a href="https://codeclimate.com/github/bombsimon/amqp-rpc/maintainability">
+  <a href="https://codeclimate.com/github/0x4b53/amqp-rpc/maintainability">
     <img src="https://api.codeclimate.com/v1/badges/77ecbf483dc76d4327a5/maintainability">
   </a>
-  <a href="https://codeclimate.com/github/bombsimon/amqp-rpc/test_coverage">
+  <a href="https://codeclimate.com/github/0x4b53/amqp-rpc/test_coverage">
     <img src="https://api.codeclimate.com/v1/badges/77ecbf483dc76d4327a5/test_coverage">
   </a>
-  <a href="https://golangci.com/r/github.com/bombsimon/amqp-rpc">
-    <img src="https://golangci.com/badges/github.com/bombsimon/amqp-rpc.svg">
+  <a href="https://golangci.com/r/github.com/0x4b53/amqp-rpc">
+    <img src="https://golangci.com/badges/github.com/0x4b53/amqp-rpc.svg">
   </a>
 </p>
 
@@ -458,4 +458,4 @@ about how to customize your setup, see the [documentation].
   [RabbitMQ connections]: https://www.rabbitmq.com/connections.html
   [logrus]: https://github.com/sirupsen/logrus
   [examples]: examples/
-  [documentation]: https://godoc.org/github.com/bombsimon/amqp-rpc
+  [documentation]: https://godoc.org/github.com/0x4b53/amqp-rpc
