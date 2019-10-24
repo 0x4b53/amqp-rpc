@@ -8,7 +8,7 @@ import (
 	"github.com/streadway/amqp"
 	"github.com/stretchr/testify/assert"
 
-	amqprpc "github.com/bombsimon/amqp-rpc"
+	amqprpc "github.com/0x4b53/amqp-rpc"
 )
 
 func TestAckDelivery(t *testing.T) {

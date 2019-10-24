@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	amqprpc "github.com/bombsimon/amqp-rpc"
+	amqprpc "github.com/0x4b53/amqp-rpc"
 )
 
 func main() {
