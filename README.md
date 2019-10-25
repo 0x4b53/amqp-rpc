@@ -11,8 +11,8 @@
   <a href="https://godoc.org/github.com/0x4b53/amqp-rpc">
     <img src="https://godoc.org/github.com/0x4b53/amqp-rpc?status.svg" alt="GoDoc">
   </a>
-  <a href="https://travis-ci.org/0x4b53/amqp-rpc">
-    <img src="https://travis-ci.org/0x4b53/amqp-rpc.svg?branch=master">
+  <a href="https://travis-ci.com/0x4b53/amqp-rpc">
+    <img src="https://travis-ci.com/0x4b53/amqp-rpc.svg?branch=master">
   </a>
   <a href="https://goreportcard.com/report/github.com/0x4b53/amqp-rpc">
     <img src="https://goreportcard.com/badge/github.com/0x4b53/amqp-rpc">
