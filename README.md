@@ -18,10 +18,10 @@
     <img src="https://goreportcard.com/badge/github.com/0x4b53/amqp-rpc">
   </a>
   <a href="https://codeclimate.com/github/0x4b53/amqp-rpc/maintainability">
-    <img src="https://api.codeclimate.com/v1/badges/77ecbf483dc76d4327a5/maintainability">
+    <img src="https://api.codeclimate.com/v1/badges/409b55c59ecc1b40595b/maintainability">
   </a>
   <a href="https://codeclimate.com/github/0x4b53/amqp-rpc/test_coverage">
-    <img src="https://api.codeclimate.com/v1/badges/77ecbf483dc76d4327a5/test_coverage">
+    <img src="https://api.codeclimate.com/v1/badges/409b55c59ecc1b40595b/test_coverage">
   </a>
   <a href="https://golangci.com/r/github.com/0x4b53/amqp-rpc">
     <img src="https://golangci.com/badges/github.com/0x4b53/amqp-rpc.svg">
