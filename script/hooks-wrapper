@@ -1,0 +1,26 @@
+#!/bin/bash
+
+HOOK_NAME="$0"
+HOOK_PATH_LOCAL="$HOOK_NAME.local"
+HOOK_PATH="$(basename "$HOOK_NAME")"
+
+# Execute passed command with all passed arguments, exit with exit status 1 if
+# not executed successful.
+exec_and_maybe_exit() {
+    SCRIPT_NAME="$1"
+
+    if ! "$SCRIPT_NAME" "$@"; then
+        echo "⚠️  Failed to execute '$SCRIPT_NAME'"
+        exit 1
+    fi
+}
+
+# If a `local` suffixed version of the script exist, execut it first.
+if [ -x "$HOOK_PATH_LOCAL" ]; then
+    exec_and_maybe_exit "script/$HOOK_PATH_LOCAL" "$@"
+fi
+
+# If a symlinked version also exists execute that.
+if [ -x "script/$HOOK_PATH" ]; then
+    exec_and_maybe_exit "script/$HOOK_PATH" "$@"
+fi
