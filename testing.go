@@ -1,6 +1,7 @@
 package amqprpc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,8 +13,11 @@ import (
 )
 
 const (
-	serverTestURL    = "amqp://guest:guest@localhost:5672/"
-	serverAPITestURL = "http://guest:guest@localhost:15672/api"
+	testURL                  = "amqp://guest:guest@localhost:5672/"
+	serverAPITestURL         = "http://guest:guest@localhost:15672/api"
+	defaultTestQueue         = "test.queue"
+	testClientConnectionName = "test-client"
+	testServerConnectionName = "test-server"
 )
 
 // MockAcknowledger is a mocked amqp.Acknowledger, useful for tests.
@@ -143,6 +147,83 @@ func closeConnections(names ...string) {
 
 		_ = resp.Body.Close()
 
-		fmt.Println("closed", conn["name"])
+		fmt.Println("closed", conn["user_provided_name"])
+	}
+}
+
+func testServer() *Server {
+	server := NewServer(testURL).
+		WithDebugLogger(testLogFunc("debug")).
+		WithErrorLogger(testLogFunc("ERROR")).
+		WithDialConfig(
+			amqp.Config{
+				Properties: amqp.Table{
+					"connection_name": testServerConnectionName,
+				},
+			},
+		)
+
+	server.Bind(DirectBinding(defaultTestQueue, func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		fmt.Fprintf(rw, "Got message: %s", d.Body)
+	}))
+
+	return server
+}
+
+func testClient() *Client {
+	return NewClient(testURL).
+		WithDebugLogger(testLogFunc("debug")).
+		WithErrorLogger(testLogFunc("ERROR")).
+		WithDialConfig(
+			amqp.Config{
+				Properties: amqp.Table{
+					"connection_name": testClientConnectionName,
+				},
+			},
+		)
+}
+
+func initTest() (server *Server, client *Client, start, stop func()) {
+	deleteQueue(defaultTestQueue) // Ensure queue is clean from the start.
+
+	server = testServer()
+	client = testClient()
+
+	var stopServer func()
+
+	stop = func() {
+		client.Stop()
+		stopServer()
+	}
+
+	start = func() {
+		stopServer = startAndWait(server)
+
+		// Ensure the client is started.
+		_, err := client.Send(
+			NewRequest().
+				WithRoutingKey(defaultTestQueue).
+				WithResponse(false),
+		)
+
+		if err != nil {
+			panic(err)
+		}
+
+		stop = func() {
+			stopServer()
+			client.Stop()
+		}
+	}
+
+	return
+}
+
+func testLogFunc(prefix string) LogFunc {
+	startTime := time.Now()
+
+	return func(format string, args ...interface{}) {
+		format = fmt.Sprintf("[%s] %s: %s\n", prefix, time.Since(startTime).String(), format)
+		fmt.Printf(format, args...)
 	}
 }

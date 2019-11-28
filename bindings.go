@@ -4,7 +4,7 @@ import (
 	"github.com/streadway/amqp"
 )
 
-// Exchanges are enteties where messages are sent. This defines the available
+// Exchanges are enteties where messages are published. This defines the available
 // entities based on https://www.rabbitmq.com/tutorials/amqp-concepts.html.
 const (
 	ExchangeDirect  = "direct"

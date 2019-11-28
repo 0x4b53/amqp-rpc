@@ -3,6 +3,7 @@ package amqprpc
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/streadway/amqp"
@@ -22,11 +23,15 @@ type Request struct {
 	// or just send the request without waiting.
 	Reply bool
 
-	// Timeout is the time we should wait after a request is sent before
+	// Timeout is the time we should wait after a request is published before
 	// we assume the request got lost.
 	Timeout time.Duration
 
-	// Publishing is the publising that are going to be sent.
+	// timeoutAt is the exact time when the request times out. This is set by
+	// the client when starting the countdown.
+	timeoutAt time.Time
+
+	// Publishing is the publising that are going to be published.
 	Publishing amqp.Publishing
 
 	// Context is a context which you can use to pass data from where the
@@ -45,6 +50,10 @@ type Request struct {
 
 	// the number of times that the publisher should retry.
 	numRetries int
+
+	deliveryTag uint64
+
+	confirmed chan struct{}
 }
 
 // NewRequest will generate a new request to be published. The default request
@@ -149,20 +158,72 @@ func (r *Request) Write(p []byte) (int, error) {
 }
 
 // AddMiddleware will add a middleware which will be executed when the request
-// is sent.
+// is published.
 func (r *Request) AddMiddleware(m ClientMiddlewareFunc) *Request {
 	r.middlewares = append(r.middlewares, m)
 
 	return r
 }
 
-// startTimeout will start the timeout counter by using Duration.After.
-// Is will also set the Expiration field for the Publishing so that amqp won't
-// hold on to the message in the queue after the timeout has happened.
-func (r *Request) startTimeout() <-chan time.Time {
+// startTimeout will start the timeout counter. Is will also set the Expiration
+// field for the Publishing so that amqp won't hold on to the message in the
+// queue after the timeout has happened.
+func (r *Request) startTimeout(defaultTimeout time.Duration) {
+	if r.Timeout.Nanoseconds() == 0 {
+		r.WithTimeout(defaultTimeout)
+	}
+
 	if r.Reply {
 		r.Publishing.Expiration = fmt.Sprintf("%d", r.Timeout.Nanoseconds()/1e6)
 	}
 
-	return time.After(r.Timeout)
+	r.timeoutAt = time.Now().Add(r.Timeout)
+}
+
+// AfterTimeout waits for the duration of the timeout.
+func (r *Request) AfterTimeout() <-chan time.Time {
+	return time.After(time.Until(r.timeoutAt))
+}
+
+// RequestMap keeps track of requests based on their DeliveryTag and/or
+// CorrelationID.
+type RequestMap struct {
+	byDeliveryTag   map[uint64]*Request
+	byCorrelationID map[string]*Request
+	mu              sync.RWMutex
+}
+
+// GetByCorrelationID returns the request with the provided correlation id.
+func (m *RequestMap) GetByCorrelationID(key string) (*Request, bool) {
+	m.mu.RLock()
+	r, ok := m.byCorrelationID[key]
+	m.mu.RUnlock()
+
+	return r, ok
+}
+
+// GetByDeliveryTag returns the request with the provided delivery tag.
+func (m *RequestMap) GetByDeliveryTag(key uint64) (*Request, bool) {
+	m.mu.RLock()
+	r, ok := m.byDeliveryTag[key]
+	m.mu.RUnlock()
+
+	return r, ok
+}
+
+// Set will add r to m so it can be fetched later using it's correlation id or
+// delivery tag.
+func (m *RequestMap) Set(r *Request) {
+	m.mu.Lock()
+	m.byDeliveryTag[r.deliveryTag] = r
+	m.byCorrelationID[r.Publishing.CorrelationId] = r
+	m.mu.Unlock()
+}
+
+// Delete will remove r from m.
+func (m *RequestMap) Delete(r *Request) {
+	m.mu.Lock()
+	delete(m.byDeliveryTag, r.deliveryTag)
+	delete(m.byCorrelationID, r.Publishing.CorrelationId)
+	m.mu.Unlock()
 }

@@ -24,7 +24,7 @@ const (
 type HandlerFunc func(context.Context, *ResponseWriter, amqp.Delivery)
 
 // processedRequest is used to add the response from a handler func combined
-// with a amqp.Delivery. The reasone we need to combine those is that we reply
+// with a amqp.Delivery. The reason we need to combine those is that we reply
 // to each request in a separate go routine and the delivery is required to
 // determine on which queue to reply.
 type processedRequest struct {
@@ -56,9 +56,9 @@ type Server struct {
 	responses chan processedRequest
 
 	// dialconfig is a amqp.Config which holds information about the connection
-	// such as authentication, TLS configuration, and a dailer which is a
+	// such as authentication, TLS configuration, and a dialer which is a
 	// function used to obtain a connection. By default the dialconfig will
-	// include a dail function implemented in connection/dialer.go.
+	// include a dial function implemented in connection/dialer.go.
 	dialconfig amqp.Config
 
 	// exchangeDeclareSettings is configurations used when declaring a RabbitMQ
@@ -207,7 +207,7 @@ func (s *Server) OnStarted(f OnStartedFunc) {
 	s.onStarteds = append(s.onStarteds, f)
 }
 
-// notifyStarted will notify everyone who listenst to the OnStarted event.
+// notifyStarted will notify everyone who listens to the OnStarted event.
 // Runs sequentially so there isn't any race conditions when working with the
 // connections or channels.
 func (s *Server) notifyStarted(inputConn, outputConn *amqp.Connection, inputCh, outputCh *amqp.Channel) {
@@ -346,8 +346,9 @@ func (s *Server) listenAndServe() error {
 	responderWg.Done()
 	responderWg.Wait()
 
-	// 4. We have no more messages incoming and we've sent all our responses.
-	// The closing of connections and channels are defered so we can just return now.
+	// 4. We have no more messages incoming and we've published all our
+	// responses. The closing of connections and channels are deferred so we can
+	// just return now.
 	return nil
 }
 
@@ -378,8 +379,8 @@ func (s *Server) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync
 		consumerTag,
 		s.consumeSettings.AutoAck,
 		s.consumeSettings.Exclusive,
-		s.consumeSettings.NoLocal,
-		s.consumeSettings.NoWait,
+		false, // no-local
+		false, // no-wait.
 		s.consumeSettings.Args,
 	)
 
@@ -404,8 +405,8 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 	for delivery := range deliveries {
 		// Add one delta to the wait group each time a delivery is handled so
 		// we can end by marking it as done. This will ensure that we don't
-		// close the responses channel until the very last go routin handling a
-		// delivery is finished even though we handle them concurrently.
+		// close the responses channel until the very last go routing handling
+		// a delivery is finished even though we handle them concurrently.
 		wg.Add(1)
 
 		s.debugLog("server: got delivery on queue %v correlation id %v", queueName, delivery.CorrelationId)
@@ -422,11 +423,13 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 		go func(delivery amqp.Delivery) {
 			handler(ctx, &rw, delivery)
 
-			s.responses <- processedRequest{
-				replyTo:    delivery.ReplyTo,
-				mandatory:  rw.Mandatory,
-				immediate:  rw.Immediate,
-				publishing: *rw.Publishing,
+			if delivery.ReplyTo != "" {
+				s.responses <- processedRequest{
+					replyTo:    delivery.ReplyTo,
+					mandatory:  rw.Mandatory,
+					immediate:  rw.Immediate,
+					publishing: *rw.Publishing,
+				}
 			}
 
 			// Mark the specific delivery as finished.
@@ -462,8 +465,8 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 			// We resend the response here so that other running goroutines
 			// that have a working outCh can pick up this response.
 			s.errorLog(
-				"server: retrying publishing response to %s, correlation id: %s, reason: %s",
-				response.replyTo, response.publishing.CorrelationId, err.Error(),
+				"server: retrying publishing response to %s, reason: %s, response: %s",
+				response.replyTo, err.Error(), stringifyPublishingForLog(response.publishing),
 			)
 			s.responses <- response
 
@@ -503,7 +506,7 @@ func declareAndBind(inputCh *amqp.Channel, binding HandlerBinding, queueDeclareS
 		queueDeclareSettings.Durable,
 		queueDeclareSettings.DeleteWhenUnused,
 		queueDeclareSettings.Exclusive,
-		queueDeclareSettings.NoWait,
+		false, // no-wait.
 		queueDeclareSettings.Args,
 	)
 
@@ -520,8 +523,8 @@ func declareAndBind(inputCh *amqp.Channel, binding HandlerBinding, queueDeclareS
 		binding.ExchangeType,
 		exchangeDeclareSettings.Durable,
 		exchangeDeclareSettings.AutoDelete,
-		exchangeDeclareSettings.Internal,
-		exchangeDeclareSettings.NoWait,
+		false, // internal.
+		false, // no-wait.
 		exchangeDeclareSettings.Args,
 	)
 
@@ -533,7 +536,7 @@ func declareAndBind(inputCh *amqp.Channel, binding HandlerBinding, queueDeclareS
 		queue.Name,
 		binding.RoutingKey,
 		binding.ExchangeName,
-		queueDeclareSettings.NoWait, // Use same value as for declaring.
+		false, // no-wait.
 		binding.BindHeaders,
 	)
 

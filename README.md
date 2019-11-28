@@ -144,7 +144,7 @@ log.Print(string(response.Body))
 
 The client will not connect while being created, instead this happens when the
 first request is being published (while calling `Send()`). This allows you to
-configure connection related parameters such as timeout by chainging the
+configure connection related parameters such as timeout by chaining the
 methods.
 
 ```go
@@ -167,7 +167,27 @@ client := NewClient("amqp://guest:guest@localhost:5672").
     WithQueueDeclareSettings(QueueDeclareSettings{}).
     WithConsumeSettings(ConsumeSettings{}).
     WithPublishSettings(PublishSettings{}).
+    WithConfirmMode(true),
     WithTimeout(10 * Time.Second)
+```
+
+### Confirm mode
+
+Confirm mode can be set on the client and will make the client wait for `Ack`
+from the amqp-server. This makes sending requests more reliable at the cost of
+some performance as each publishing must be confirmed by the amqp-server [Your
+can read more here](https://www.rabbitmq.com/confirms.html#publisher-confirms)
+
+The client is set in confirm mode by default.
+
+You can use `WithPublishSettings` or `WithConfirmMode` to control this setting.
+
+```go
+client := NewClient("amqp://guest:guest@localhost:5672").
+    WithConfirmMode(true)
+
+client := NewClient("amqp://guest:guest@localhost:5672").
+    WithPublishSettings(true)
 ```
 
 ### Request

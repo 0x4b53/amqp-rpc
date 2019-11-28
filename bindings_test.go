@@ -14,46 +14,35 @@ import (
 
 func TestFanout(t *testing.T) {
 	var (
-		assert      = assert.New(t)
 		timesCalled int64
-		called      = make(chan struct{})
 	)
 
 	fanoutHandler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		atomic.AddInt64(&timesCalled, 1)
-		called <- struct{}{}
 	}
 
 	for range make([]struct{}, 3) {
-		s := NewServer(serverTestURL)
+		s := NewServer(testURL)
 		s.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
 
 		stop := startAndWait(s)
 		defer stop()
 	}
 
-	c := NewClient(serverTestURL)
+	c := NewClient(testURL)
 	defer c.Stop()
 
 	_, err := c.Send(NewRequest().WithExchange("fanout-exchange").WithResponse(false))
+	assert.NoError(t, err)
 
-	// Ensure all handlers have added to the timesCalled variable.
-	for range make([]int, 3) {
-		select {
-		case <-called:
-			// Great!
-		case <-time.After(time.Second):
-			t.Error("fanoutHandler was not called")
-		}
-	}
-
-	assert.Nil(err, "no errors occurred")
-	assert.Equal(atomic.LoadInt64(&timesCalled), int64(3), "endpoint called 3 times")
+	assert.Eventually(t, func() bool {
+		return atomic.LoadInt64(&timesCalled) == int64(3)
+	}, 3*time.Second, 10*time.Millisecond)
 }
 
 func TestTopic(t *testing.T) {
-	s := NewServer(serverTestURL)
-	c := NewClient(serverTestURL)
+	s := NewServer(testURL)
+	c := NewClient(testURL)
 
 	defer c.Stop()
 
@@ -82,8 +71,8 @@ func TestTopic(t *testing.T) {
 }
 
 func TestHeaders(t *testing.T) {
-	s := NewServer(serverTestURL)
-	c := NewClient(serverTestURL)
+	s := NewServer(testURL)
+	c := NewClient(testURL)
 
 	defer c.Stop()
 

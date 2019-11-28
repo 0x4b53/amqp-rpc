@@ -2,8 +2,10 @@ package amqprpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"strconv"
 	"sync"
 	"testing"
@@ -14,34 +16,165 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	clientTestURL = "amqp://guest:guest@localhost:5672/"
-)
-
 func TestClient(t *testing.T) {
-	s := NewServer(clientTestURL)
-	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-		fmt.Fprintf(rw, "Got message: %s", d.Body)
-	}))
-
-	stop := startAndWait(s)
+	_, client, start, stop := initTest()
 	defer stop()
 
-	client := NewClient(clientTestURL)
-	defer client.Stop()
+	start()
 
-	assert.NotNil(t, client, "client exist")
-
-	request := NewRequest().WithRoutingKey("myqueue").WithBody("client testing")
+	request := NewRequest().WithRoutingKey(defaultTestQueue).WithBody("client testing")
 	response, err := client.Send(request)
-	assert.Nil(t, err, "no errors from sending")
+
+	require.NoError(t, err)
 	assert.Equal(t, []byte("Got message: client testing"), response.Body, "correct body in response")
 }
 
-func TestClientStopWhenCannotStart(t *testing.T) {
-	client := NewClient("amqp://guest:guest@example:1234/")
+func TestClientNoConfirmMode(t *testing.T) {
+	_, client, start, stop := initTest()
+	defer stop()
 
-	assert.NotNil(t, client, "client exist")
+	client.WithConfirmMode(false)
+
+	start()
+
+	request := NewRequest().WithRoutingKey(defaultTestQueue).WithBody("client testing")
+	response, err := client.Send(request)
+
+	require.NoError(t, err)
+	assert.Equal(t, []byte("Got message: client testing"), response.Body, "correct body in response")
+}
+
+func TestClientDataRace(t *testing.T) {
+	_, client, start, stop := initTest()
+	defer stop()
+
+	start()
+
+	wg := sync.WaitGroup{}
+
+	for i := 0; i < runtime.NumCPU(); i++ {
+		wg.Add(1)
+
+		go func() {
+			_, _ = client.Send(
+				NewRequest().
+					WithRoutingKey(defaultTestQueue).
+					WithBody("client testing"),
+			)
+
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestClientReturn(t *testing.T) {
+	_, client, start, stop := initTest()
+	defer stop()
+
+	start()
+
+	request := NewRequest().
+		WithRoutingKey("not-exists")
+
+	_, err := client.Send(request)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrRequestReturned))
+	assert.Contains(t, err.Error(), "NO_ROUTE")
+}
+
+func TestClient_ConfirmsConsumer(t *testing.T) {
+	client := NewClient("")
+	client.requestsMap = RequestMap{
+		byDeliveryTag:   make(map[uint64]*Request),
+		byCorrelationID: make(map[string]*Request),
+	}
+
+	confirms := make(chan amqp.Confirmation)
+
+	go client.runConfirmsConsumer(confirms)
+
+	tests := []struct {
+		name            string
+		ack             bool
+		wantNoConfirm   bool
+		wantNilResponse bool
+		wantErr         bool
+		isUnknown       bool
+	}{
+		{
+			name:          "unknown request does nothing",
+			wantNoConfirm: true,
+			isUnknown:     true,
+		},
+		{
+			name:            "ack request makes it confirmed",
+			ack:             true,
+			wantErr:         false,
+			wantNilResponse: true,
+		},
+		{
+			name:    "nack request makes it confirmed",
+			ack:     false,
+			wantErr: true,
+		},
+		{
+			name:            "no automatic response",
+			ack:             true,
+			wantNilResponse: false,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := NewRequest().
+				WithResponse(!tt.wantNilResponse)
+
+			request.confirmed = make(chan struct{})
+			request.response = make(chan *amqp.Delivery)
+			request.errChan = make(chan error)
+			request.deliveryTag = uint64(i)
+
+			if !tt.isUnknown {
+				client.requestsMap.Set(request)
+			}
+
+			go func() {
+				confirms <- amqp.Confirmation{
+					DeliveryTag: request.deliveryTag,
+					Ack:         tt.ack,
+				}
+			}()
+
+			select {
+			case <-request.confirmed:
+				assert.False(t, tt.wantNoConfirm, "request confirmed")
+			case <-time.After(10 * time.Millisecond):
+				assert.True(t, tt.wantNoConfirm, "request not confirmed")
+			}
+
+			client.requestsMap.Delete(request)
+
+			select {
+			case <-request.response:
+				assert.True(t, tt.wantNilResponse, "got response")
+			case <-time.After(10 * time.Millisecond):
+				assert.False(t, tt.wantNilResponse, "no response")
+			}
+
+			select {
+			case <-request.errChan:
+				assert.True(t, tt.wantErr, "got error")
+			case <-time.After(10 * time.Millisecond):
+				assert.False(t, tt.wantErr, "no error")
+			}
+		})
+	}
+}
+
+func TestClientStopWhenCannotStart(t *testing.T) {
+	client := NewClient(testURL)
 
 	request := NewRequest().
 		WithTimeout(10 * time.Millisecond).
@@ -69,7 +202,7 @@ func TestClientStopWhenCannotStart(t *testing.T) {
 }
 
 func TestClientStopWhenNeverStarted(t *testing.T) {
-	client := NewClient(clientTestURL)
+	client := NewClient(testURL)
 
 	var stopped sync.WaitGroup
 
@@ -92,7 +225,7 @@ func TestClientStopWhenNeverStarted(t *testing.T) {
 func TestClientConfig(t *testing.T) {
 	cert := Certificates{}
 
-	certClient := NewClient(clientTestURL).WithTLS(cert.TLSConfig())
+	certClient := NewClient(testURL).WithTLS(cert.TLSConfig())
 	defer certClient.Stop()
 
 	assert.NotNil(t, certClient, "client with certificate exist")
@@ -100,74 +233,111 @@ func TestClientConfig(t *testing.T) {
 	ac := amqp.Config{}
 	qdSettings := QueueDeclareSettings{}
 	cSettings := ConsumeSettings{}
+	publSettings := PublishSettings{}
 
-	acClient := NewClient(clientTestURL).WithDialConfig(ac).
+	acClient := NewClient(testURL).WithDialConfig(ac).
 		WithQueueDeclareSettings(qdSettings).
+		WithPublishSettings(publSettings).
 		WithConsumeSettings(cSettings).
+		WithConfirmMode(true).
 		WithTimeout(2500 * time.Millisecond)
 	defer acClient.Stop()
 
 	assert.NotNil(t, acClient, "configured client exist")
+
+	assert.True(t, acClient.publishSettings.ConfirmMode)
+	assert.False(t, acClient.publishSettings.Immediate)
+	assert.False(t, acClient.publishSettings.Mandatory)
 }
 
 func TestClientReconnect(t *testing.T) {
-	client := NewClient(clientTestURL).WithDialConfig(amqp.Config{
-		Properties: amqp.Table{
-			"connection_name": "client-reconnect-test",
-		},
-	})
-	defer client.Stop()
+	_, client, start, stop := initTest()
+	defer stop()
 
-	assert.NotNil(t, client, "client with dialer exist")
+	start()
 
-	// Force a connection by calling send.
-	_, err := client.Send(NewRequest().WithResponse(false))
-	assert.NoError(t, err)
+	closeConnections(testClientConnectionName)
 
-	closeConnections("client-reconnect-test")
+	// Default wait for the reconnect is 0.5s so 1s should be enough to ensure
+	// that the reconnection has gone through.
+	time.Sleep(1 * time.Second)
 
-	_, err = client.Send(NewRequest().WithResponse(false))
+	_, err := client.Send(
+		NewRequest().WithRoutingKey(defaultTestQueue),
+	)
+
 	assert.NoError(t, err)
 }
 
 func TestClientRetry(t *testing.T) {
-	var conn net.Conn
-
-	dialFunc := func(network, addr string) (net.Conn, error) {
-		var err error
-		conn, err = amqp.DefaultDial(1*time.Second)(network, addr)
-
-		return conn, err
+	tests := []struct {
+		name        string
+		confirmMode bool
+	}{
+		{
+			name:        "confirm-mode",
+			confirmMode: true,
+		},
+		{
+			name:        "no confirm-mode",
+			confirmMode: false,
+		},
 	}
 
-	client := NewClient(clientTestURL).
-		WithDialConfig(amqp.Config{Dial: dialFunc}).
-		WithMaxRetries(2)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var conn net.Conn
 
-	defer client.Stop()
+			dialFunc := func(network, addr string) (net.Conn, error) {
+				var err error
+				conn, err = amqp.DefaultDial(1*time.Second)(network, addr)
 
-	_, err := client.Send(NewRequest().WithResponse(false))
-	require.NoError(t, err)
+				return conn, err
+			}
 
-	// Closing only for writing ensures that the amqp.Connection doesn't know
-	// that it's been closed.
-	require.NoError(t, conn.(*net.TCPConn).CloseWrite())
+			_, client, start, stop := initTest()
+			defer stop()
 
-	_, err = client.Send(NewRequest().WithResponse(false))
-	require.NoError(t, err)
+			client.
+				WithConfirmMode(tt.confirmMode).
+				WithDialConfig(amqp.Config{Dial: dialFunc}).
+				WithMaxRetries(2)
 
-	req := NewRequest().WithResponse(false)
-	req.numRetries = 2 // Simulate that we've already retried this one.
+			start()
 
-	require.NoError(t, conn.(*net.TCPConn).CloseWrite())
+			// Closing only for writing ensures that the amqp.Connection doesn't know
+			// that it's been closed.
+			require.NoError(t, conn.(*net.TCPConn).CloseWrite())
 
-	_, err = client.Send(req)
-	require.Error(t, err)
+			_, err := client.Send(
+				NewRequest().
+					WithRoutingKey(defaultTestQueue).
+					WithResponse(false),
+			)
+
+			require.NoError(t, err)
+
+			req := NewRequest().
+				WithRoutingKey(defaultTestQueue).
+				WithResponse(false)
+
+			// Simulate that we've already retried this one.
+			req.numRetries = 2
+
+			require.NoError(t, conn.(*net.TCPConn).CloseWrite())
+
+			_, err = client.Send(req)
+			require.Error(t, err)
+			assert.False(t, errors.Is(err, ErrRequestTimeout))
+		})
+	}
 }
 
 func TestClientTimeout(t *testing.T) {
-	s := NewServer(clientTestURL)
-	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	server, client, start, stop := initTest()
+	defer stop()
+
+	server.Bind(DirectBinding("timeout-queue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		expiration, _ := strconv.Atoi(d.Expiration)
 
 		if d.Headers["timeout"].(bool) {
@@ -176,12 +346,64 @@ func TestClientTimeout(t *testing.T) {
 			assert.Equal(t, 0, expiration)
 		}
 
-		time.Sleep(2 * time.Millisecond)
+		time.Sleep(time.Duration(expiration) * time.Millisecond)
 	}))
 
-	stop := startAndWait(s)
-	defer stop()
+	start()
 
+	cases := []struct {
+		name          string
+		clientTimeout time.Duration
+		request       *Request
+		wantTimeout   bool
+	}{
+		{
+			name:          "Client with timeout but no timeout on the Request",
+			clientTimeout: 10 * time.Millisecond,
+			request:       NewRequest(),
+			wantTimeout:   true,
+		},
+		{
+			name:          "Request with timeout but no timeout on the Client",
+			clientTimeout: 0,
+			request:       NewRequest().WithTimeout(10 * time.Millisecond),
+			wantTimeout:   true,
+		},
+		{
+			name:          "Request timeout overrides the Client timeout",
+			clientTimeout: 10 * time.Second,
+			request:       NewRequest().WithTimeout(10 * time.Millisecond),
+			wantTimeout:   true,
+		},
+		{
+			name:          "Request without reply has no timeout",
+			clientTimeout: 10 * time.Second,
+			request:       NewRequest().WithResponse(false),
+			wantTimeout:   false,
+		},
+	}
+
+	for _, tc := range cases {
+		tc.request.WriteHeader("timeout", tc.wantTimeout)
+		tc.request.WithRoutingKey("timeout-queue")
+
+		t.Run(tc.name, func(t *testing.T) {
+			client.WithTimeout(tc.clientTimeout)
+
+			response, err := client.Send(tc.request)
+			if !tc.wantTimeout {
+				assert.Nil(t, err)
+				return
+			}
+
+			assert.Error(t, err)
+			assert.True(t, errors.Is(err, ErrRequestTimeout))
+			assert.Nil(t, response)
+		})
+	}
+}
+
+func TestClientTimeoutWhileConnecting(t *testing.T) {
 	cases := []struct {
 		name        string
 		client      *Client
@@ -189,38 +411,14 @@ func TestClientTimeout(t *testing.T) {
 		wantTimeout bool
 	}{
 		{
-			name:        "Client with timeout but no timeout on the Request",
-			client:      NewClient(clientTestURL).WithTimeout(1 * time.Millisecond),
-			request:     NewRequest(),
-			wantTimeout: true,
-		},
-		{
-			name:        "Request with timeout but no timeout on the Client",
-			client:      NewClient(clientTestURL),
-			request:     NewRequest().WithTimeout(1 * time.Millisecond),
-			wantTimeout: true,
-		},
-		{
-			name:        "Request timeout overrides the Client timeout",
-			client:      NewClient(clientTestURL).WithTimeout(10 * time.Second),
-			request:     NewRequest().WithTimeout(1 * time.Millisecond),
-			wantTimeout: true,
-		},
-		{
-			name:        "Request without reply has no timeout",
-			client:      NewClient(clientTestURL).WithTimeout(10 * time.Second),
-			request:     NewRequest().WithResponse(false),
-			wantTimeout: false,
-		},
-		{
 			name:        "Client not being able to connect causes real timeout error",
-			client:      NewClient("amqp://guest:guest@example:1234/").WithTimeout(1 * time.Millisecond),
+			client:      NewClient("amqp://guest:guest@example:1234/").WithTimeout(10 * time.Millisecond),
 			request:     NewRequest().WithResponse(false),
 			wantTimeout: true,
 		},
 		{
 			name:        "Client with response not being able to connect causes real timeout error",
-			client:      NewClient("amqp://guest:guest@example:1234/").WithTimeout(1 * time.Millisecond),
+			client:      NewClient("amqp://guest:guest@example:1234/").WithTimeout(10 * time.Millisecond),
 			request:     NewRequest().WithResponse(true),
 			wantTimeout: true,
 		},
@@ -231,22 +429,21 @@ func TestClientTimeout(t *testing.T) {
 		tc.request.WithRoutingKey("myqueue")
 
 		t.Run(tc.name, func(t *testing.T) {
-			defer tc.client.Stop()
-
 			response, err := tc.client.Send(tc.request)
 			if !tc.wantTimeout {
 				assert.Nil(t, err)
 				return
 			}
 
-			assert.Equal(t, ErrTimeout, err)
+			assert.Error(t, err)
+			assert.True(t, errors.Is(err, ErrRequestTimeout))
 			assert.Nil(t, response)
 		})
 	}
 }
 
 func TestGracefulShutdown(t *testing.T) {
-	s := NewServer(clientTestURL)
+	s := NewServer(testURL)
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "hello")
 	}))
@@ -254,7 +451,7 @@ func TestGracefulShutdown(t *testing.T) {
 	stop := startAndWait(s)
 	defer stop()
 
-	c := NewClient(clientTestURL)
+	c := NewClient(testURL)
 	defer c.Stop()
 
 	r, err := c.Send(NewRequest().WithRoutingKey("myqueue"))
@@ -273,7 +470,7 @@ func TestGracefulShutdown(t *testing.T) {
 }
 
 func TestClient_OnStarted(t *testing.T) {
-	s := NewServer(clientTestURL)
+	s := NewServer(testURL)
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
@@ -283,7 +480,7 @@ func TestClient_OnStarted(t *testing.T) {
 
 	errs := make(chan string, 4)
 
-	c := NewClient(clientTestURL)
+	c := NewClient(testURL)
 	defer c.Stop()
 
 	c.OnStarted(func(inC, outC *amqp.Connection, inCh, outCh *amqp.Channel) {
