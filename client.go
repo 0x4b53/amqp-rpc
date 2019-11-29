@@ -381,12 +381,9 @@ func (c *Client) runOnce() error {
 
 		go c.runConfirmsConsumer(
 			outputCh.NotifyPublish(make(chan amqp.Confirmation)),
+			outputCh.NotifyReturn(make(chan amqp.Return)),
 		)
 	}
-
-	go c.runReturnsConsumer(
-		outputCh.NotifyReturn(make(chan amqp.Return)),
-	)
 
 	go c.runPublisher(outputCh)
 
@@ -527,63 +524,84 @@ func (c *Client) retryRequest(request *Request, err error) {
 	}()
 }
 
-// runReturnsConsumer will run the consumer that handles amqp.Returns. If any
-// message is returned an error is sent back to the caller.
-func (c *Client) runReturnsConsumer(returns chan amqp.Return) {
-	for ret := range returns {
-		request, ok := c.requestsMap.GetByCorrelationID(ret.CorrelationId)
-		if !ok {
-			// This could happen if we stop waiting for requests to return due
-			// to a timeout. But since returns are normally very fast that
-			// would mean that something isn't quite right on the amqp server.
-			c.errorLog("client: got return for unknown request: %s", stringifyReturnForLog(ret))
-			continue
-		}
+// runConfirmsConsumer will consume both confirmations and returns and since
+// returns always arrives before confirmations we want to finish handling any
+// return before we handle any confirmations.
+func (c *Client) runConfirmsConsumer(confirms chan amqp.Confirmation, returns chan amqp.Return) {
+	for {
+		select {
+		case ret, ok := <-returns:
+			if !ok {
+				return
+			}
 
-		err := fmt.Errorf("%w: %d, %s", ErrRequestReturned, ret.ReplyCode, ret.ReplyText)
+			request, ok := c.requestsMap.GetByCorrelationID(ret.CorrelationId)
+			if !ok {
+				// This could happen if we stop waiting for requests to return due
+				// to a timeout. But since returns are normally very fast that
+				// would mean that something isn't quite right on the amqp server.
+				c.errorLog("client: got return for unknown request: %s", stringifyReturnForLog(ret))
+				continue
+			}
 
-		c.debugLog("client: %s, %s", err.Error(), stringifyRequestForLog(request))
+			c.debugLog("client: publishing is returned by server: %s", ret.CorrelationId)
 
-		c.respondErrorToRequest(request, err)
-	}
-}
+			request.returned = &ret
 
-func (c *Client) runConfirmsConsumer(confirms chan amqp.Confirmation) {
-	for confirm := range confirms {
-		request, ok := c.requestsMap.GetByDeliveryTag(confirm.DeliveryTag)
-		if !ok {
-			// This could happen if we stop waiting for requests to return due
-			// to a timeout. But since confirmations are normally very fast that
-			// would mean that something isn't quite right on the amqp server.
-			// Unfortunately there isn't any way of getting more information
-			// than the delivery tag from a confirmation.
-			c.errorLog("client: got confirmation of unknown request: %d", confirm.DeliveryTag)
-			continue
-		}
+		case confirm, ok := <-confirms:
+			if !ok {
+				return
+			}
 
-		c.debugLog("client: confirming request %s", request.Publishing.CorrelationId)
+			request, ok := c.requestsMap.GetByDeliveryTag(confirm.DeliveryTag)
+			if !ok {
+				// This could happen if we stop waiting for requests to return due
+				// to a timeout. But since confirmations are normally very fast that
+				// would mean that something isn't quite right on the amqp server.
+				// Unfortunately there isn't any way of getting more information
+				// than the delivery tag from a confirmation.
+				c.errorLog("client: got confirmation of unknown request: %d", confirm.DeliveryTag)
+				continue
+			}
 
-		c.confirmRequest(request)
+			c.debugLog("client: confirming request %s", request.Publishing.CorrelationId)
 
-		if !confirm.Ack {
-			c.errorLog("client: publishing is rejected by server: %s", stringifyRequestForLog(request))
+			c.confirmRequest(request)
 
-			c.respondErrorToRequest(request, ErrRequestRejected)
+			if !confirm.Ack {
+				c.errorLog("client: publishing is rejected by server: %s", stringifyRequestForLog(request))
 
-			// Doesn't matter if the request wants the nil reply below because
-			// we gave it an error instead.
-			continue
-		}
+				c.respondErrorToRequest(request, ErrRequestRejected)
 
-		if !request.Reply {
-			// The request isn't expecting a reply so we need give a nil
-			// response instead to signal that we're done.
-			c.debugLog(
-				"client: sending nil response after confirmation due to no reply wanted %s",
-				request.Publishing.CorrelationId,
-			)
+				// Doesn't matter if the request wants the nil reply below because
+				// we gave it an error instead.
+				continue
+			}
 
-			c.respondToRequest(request, nil)
+			// Check if the request was also returned.
+			if request.returned != nil {
+				c.respondErrorToRequest(
+					request,
+					fmt.Errorf("%w: %d, %s",
+						ErrRequestReturned,
+						request.returned.ReplyCode,
+						request.returned.ReplyText,
+					),
+				)
+
+				continue
+			}
+
+			if !request.Reply {
+				// The request isn't expecting a reply so we need give a nil
+				// response instead to signal that we're done.
+				c.debugLog(
+					"client: sending nil response after confirmation due to no reply wanted %s",
+					request.Publishing.CorrelationId,
+				)
+
+				c.respondToRequest(request, nil)
+			}
 		}
 	}
 }
@@ -668,6 +686,7 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 					"client: could not find where to reply. CorrelationId: %s",
 					stringifyDeliveryForLog(&response),
 				)
+
 				continue
 			}
 

@@ -75,16 +75,109 @@ func TestClientReturn(t *testing.T) {
 
 	start()
 
-	request := NewRequest().
-		WithRoutingKey("not-exists")
+	tests := []struct {
+		name         string
+		withResponse bool
+	}{
+		{
+			name:         "WithResponse: true",
+			withResponse: true,
+		},
+		{
+			name:         "WithResponse: false",
+			withResponse: false,
+		},
+	}
 
-	_, err := client.Send(request)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrRequestReturned))
-	assert.Contains(t, err.Error(), "NO_ROUTE")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := NewRequest().
+				WithResponse(tt.withResponse).
+				WithRoutingKey("not-exists")
+
+			_, err := client.Send(request)
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, ErrRequestReturned))
+			assert.Contains(t, err.Error(), "NO_ROUTE")
+		})
+	}
 }
 
-func TestClient_ConfirmsConsumer(t *testing.T) {
+func TestClient_ConfirmsConsumer_return(t *testing.T) {
+	client := NewClient("")
+	client.requestsMap = RequestMap{
+		byDeliveryTag:   make(map[uint64]*Request),
+		byCorrelationID: make(map[string]*Request),
+	}
+
+	returns := make(chan amqp.Return)
+	confirms := make(chan amqp.Confirmation)
+
+	go client.runConfirmsConsumer(confirms, returns)
+
+	tests := []struct {
+		name       string
+		isUnknown  bool
+		wantReturn bool
+		wantErr    bool
+	}{
+		{
+			name:       "known return sets error",
+			isUnknown:  false,
+			wantReturn: true,
+			wantErr:    true,
+		},
+		{
+			name:       "unknown does nothing",
+			isUnknown:  true,
+			wantReturn: false,
+			wantErr:    false,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := NewRequest().
+				WithResponse(false)
+
+			request.confirmed = make(chan struct{})
+			request.response = make(chan *amqp.Delivery)
+			request.errChan = make(chan error)
+			request.deliveryTag = uint64(i)
+			request.Publishing.CorrelationId = tt.name
+
+			if !tt.isUnknown {
+				client.requestsMap.Set(request)
+			}
+
+			go func() {
+				returns <- amqp.Return{
+					CorrelationId: request.Publishing.CorrelationId,
+				}
+
+				confirms <- amqp.Confirmation{
+					DeliveryTag: request.deliveryTag,
+					Ack:         true,
+				}
+			}()
+
+			select {
+			case <-request.confirmed:
+				assert.True(t, tt.wantErr, "request confirmed")
+			case <-time.After(10 * time.Millisecond):
+				assert.False(t, tt.wantErr, "request not confirmed")
+			}
+
+			select {
+			case <-request.errChan:
+				assert.True(t, tt.wantErr, "got error")
+			case <-time.After(10 * time.Millisecond):
+				assert.False(t, tt.wantErr, "no error")
+			}
+		})
+	}
+}
+func TestClient_ConfirmsConsumer_confirm(t *testing.T) {
 	client := NewClient("")
 	client.requestsMap = RequestMap{
 		byDeliveryTag:   make(map[uint64]*Request),
@@ -93,7 +186,7 @@ func TestClient_ConfirmsConsumer(t *testing.T) {
 
 	confirms := make(chan amqp.Confirmation)
 
-	go client.runConfirmsConsumer(confirms)
+	go client.runConfirmsConsumer(confirms, make(chan amqp.Return))
 
 	tests := []struct {
 		name            string
@@ -101,6 +194,7 @@ func TestClient_ConfirmsConsumer(t *testing.T) {
 		wantNoConfirm   bool
 		wantNilResponse bool
 		wantErr         bool
+		isReturned      bool
 		isUnknown       bool
 	}{
 		{
@@ -124,6 +218,12 @@ func TestClient_ConfirmsConsumer(t *testing.T) {
 			ack:             true,
 			wantNilResponse: false,
 		},
+		{
+			name:       "returned request gives error",
+			isReturned: true,
+			ack:        true,
+			wantErr:    true,
+		},
 	}
 
 	for i, tt := range tests {
@@ -138,6 +238,10 @@ func TestClient_ConfirmsConsumer(t *testing.T) {
 
 			if !tt.isUnknown {
 				client.requestsMap.Set(request)
+			}
+
+			if tt.isReturned {
+				request.returned = &amqp.Return{}
 			}
 
 			go func() {

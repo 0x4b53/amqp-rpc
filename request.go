@@ -54,6 +54,7 @@ type Request struct {
 	deliveryTag uint64
 
 	confirmed chan struct{}
+	returned  *amqp.Return
 }
 
 // NewRequest will generate a new request to be published. The default request
