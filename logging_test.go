@@ -132,10 +132,12 @@ func Test_stringifyForLog(t *testing.T) {
 			switch v := tt.item.(type) {
 			case amqp.Delivery:
 				got = stringifyDeliveryForLog(&v)
+				assert.Equal(t, "[nil]", stringifyDeliveryForLog(nil))
 			case amqp.Return:
 				got = stringifyReturnForLog(v)
 			case Request:
 				got = stringifyRequestForLog(&v)
+				assert.Equal(t, "[nil]", stringifyRequestForLog(nil))
 			}
 
 			assert.Equal(t, tt.want, got)

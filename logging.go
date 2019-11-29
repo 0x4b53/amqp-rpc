@@ -63,6 +63,10 @@ func stringifyTableForLog(v amqp.Table) string {
 }
 
 func stringifyDeliveryForLog(v *amqp.Delivery) string {
+	if v == nil {
+		return "[nil]"
+	}
+
 	vals := []string{}
 
 	if v.Exchange != "" {
@@ -123,6 +127,10 @@ func stringifyPublishingForLog(v amqp.Publishing) string {
 }
 
 func stringifyRequestForLog(v *Request) string {
+	if v == nil {
+		return "[nil]"
+	}
+
 	vals := []string{}
 
 	if v.Exchange != "" {

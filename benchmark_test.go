@@ -51,6 +51,7 @@ func Benchmark(b *testing.B) {
 	benchmarks := []struct {
 		name         string
 		withResponse bool
+		returned     bool
 		client       *Client
 	}{
 		{
@@ -64,6 +65,12 @@ func Benchmark(b *testing.B) {
 			client:       confirmingClient,
 		},
 		{
+			name:         "WithResponse-Returned",
+			withResponse: false,
+			returned:     true,
+			client:       confirmingClient,
+		},
+		{
 			name:         "NoResponse-NoConfirmMode",
 			withResponse: false,
 			client:       fastClient,
@@ -73,23 +80,40 @@ func Benchmark(b *testing.B) {
 			withResponse: false,
 			client:       confirmingClient,
 		},
+		{
+			name:         "NoResponse-Returned",
+			withResponse: false,
+			returned:     true,
+			client:       confirmingClient,
+		},
 	}
 
 	for _, bm := range benchmarks {
 		b.Run(fmt.Sprintf(bm.name), func(b *testing.B) {
+			routingKey := queueName
+			if bm.returned {
+				routingKey = "does-not-exist"
+			}
+
 			time.Sleep(2 * time.Second) // Let the amqp-server calm down between the tests.
 			b.ResetTimer()
 
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
 					request := NewRequest().
-						WithRoutingKey(queueName).
+						WithRoutingKey(routingKey).
 						WithResponse(bm.withResponse)
 
 					_, err := bm.client.Send(request)
 
-					if err != nil {
-						b.Fatal(err.Error())
+					if bm.returned {
+						if err == nil {
+							b.Fatal(err.Error())
+						}
+					} else {
+						if err != nil {
+							b.Fatal(err.Error())
+						}
 					}
 				}
 			})

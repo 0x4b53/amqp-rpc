@@ -155,6 +155,13 @@ func (s *Server) WithAutoAck(b bool) *Server {
 	return s
 }
 
+// WithQoSPrefetchCount sets the AMQP servers QoS pre-fetch count.
+func (s *Server) WithQoSPrefetchCount(c int) *Server {
+	s.consumeSettings.QoSPrefetchCount = c
+
+	return s
+}
+
 // WithDialConfig sets the dial config used for the server.
 func (s *Server) WithDialConfig(c amqp.Config) *Server {
 	s.dialconfig = c
