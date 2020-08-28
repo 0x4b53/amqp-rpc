@@ -37,9 +37,11 @@ func TestNoAutomaticAck(t *testing.T) {
 
 	calls := make(chan struct{}, 2)
 
-	server.Bind(DirectBinding("no-auto-ack", func(ctc context.Context, responseWriter *ResponseWriter, d amqp.Delivery) {
-		calls <- struct{}{}
-	}))
+	server.Bind(
+		DirectBinding("no-auto-ack", func(ctc context.Context, responseWriter *ResponseWriter, d amqp.Delivery) {
+			calls <- struct{}{}
+		}),
+	)
 
 	start()
 
@@ -233,4 +235,38 @@ func TestServerConfig(t *testing.T) {
 	assert.Equal(t, s.queueDeclareSettings, qdSettings)
 	assert.Equal(t, s.consumeSettings, cSettings)
 	assert.Equal(t, s.exchangeDeclareSettings, eSettings)
+}
+
+func TestContextDoneWhenServerStopped(t *testing.T) {
+	server, client, start, stop := initTest()
+
+	ctxDone := make(chan bool, 1)
+
+	server.Bind(DirectBinding("context.test", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		select {
+		case <-ctx.Done():
+			ctxDone <- true
+		case <-time.After(5 * time.Second):
+			ctxDone <- false
+		}
+	}))
+
+	start()
+
+	_, err := client.Send(
+		NewRequest().
+			WithRoutingKey("context.test").
+			WithResponse(false),
+	)
+
+	require.NoError(t, err)
+
+	stop()
+
+	select {
+	case wasDone := <-ctxDone:
+		assert.True(t, wasDone)
+	case <-time.After(10 * time.Second):
+		t.Fatalf("handler was never called")
+	}
 }

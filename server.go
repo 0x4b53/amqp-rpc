@@ -88,14 +88,21 @@ type Server struct {
 	// print most of what is happening internally.
 	// If nil, logging is not done.
 	debugLog LogFunc
+
+	baseContext       context.Context
+	baseContextCancel context.CancelFunc
 }
 
 // NewServer will return a pointer to a new Server.
 func NewServer(url string) *Server {
+	baseContext, cancelFunc := context.WithCancel(context.Background())
+
 	server := Server{
-		url:         url,
-		bindings:    []HandlerBinding{},
-		middlewares: []ServerMiddlewareFunc{},
+		url:               url,
+		bindings:          []HandlerBinding{},
+		middlewares:       []ServerMiddlewareFunc{},
+		baseContext:       baseContext,
+		baseContextCancel: cancelFunc,
 		dialconfig: amqp.Config{
 			Dial: DefaultDialer,
 		},
@@ -341,18 +348,22 @@ func (s *Server) listenAndServe() error {
 		return err
 	}
 
-	// 2. We've told amqp to stop delivering messages, now we wait for all
+	// 2. Tell all handlers that we are stopping, in case they have any long
+	// running functions.
+	s.baseContextCancel()
+
+	// 3. We've told amqp to stop delivering messages, now we wait for all
 	// the consumers to finish inflight messages.
 	consumersWg.Done()
 	consumersWg.Wait()
 
-	// 3. Close the responses chan and wait until the consumers are finished.
+	// 4. Close the responses chan and wait until the consumers are finished.
 	// We might still have responses we want to send.
 	close(s.responses)
 	responderWg.Done()
 	responderWg.Wait()
 
-	// 4. We have no more messages incoming and we've published all our
+	// 5. We have no more messages incoming and we've published all our
 	// responses. The closing of connections and channels are deferred so we can
 	// just return now.
 	return nil
@@ -429,7 +440,7 @@ func (s *Server) runHandler(
 			},
 		}
 
-		ctx := context.WithValue(context.Background(), CtxQueueName, queueName)
+		ctx := context.WithValue(s.baseContext, CtxQueueName, queueName)
 
 		go func(delivery amqp.Delivery) {
 			handler(ctx, &rw, delivery)
