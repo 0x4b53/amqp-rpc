@@ -6,12 +6,10 @@ import (
 	"github.com/streadway/amqp"
 )
 
-var (
-	// ErrUnexpectedConnClosed is returned by ListenAndServe() if the server
-	// shuts down without calling Stop() and if AMQP does not give an error
-	// when said shutdown happens.
-	ErrUnexpectedConnClosed = errors.New("unexpected connection close without specific error")
-)
+// ErrUnexpectedConnClosed is returned by ListenAndServe() if the server
+// shuts down without calling Stop() and if AMQP does not give an error
+// when said shutdown happens.
+var ErrUnexpectedConnClosed = errors.New("unexpected connection close without specific error")
 
 // OnStartedFunc can be registered at Server.OnStarted(f) and
 // Client.OnStarted(f). This is used when you want to do more setup on the

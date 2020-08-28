@@ -125,7 +125,7 @@ func (s *Server) setDefaults() {
 }
 
 // WithExchangeDeclareSettings sets configuration used when the server wants
-// to declare exchanges. Default settings are:
+// to declare exchanges.
 func (s *Server) WithExchangeDeclareSettings(settings ExchangeDeclareSettings) *Server {
 	s.exchangeDeclareSettings = settings
 
@@ -242,7 +242,6 @@ func (s *Server) ListenAndServe() {
 
 	for {
 		err := s.listenAndServe()
-
 		// If we couldn't run listenAndServe and an error was returned, make
 		// sure to check if the stopChan was closed - a user might know about
 		// connection problems and have call Stop(). If the channel isn't
@@ -381,6 +380,7 @@ func (s *Server) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync
 	}
 
 	consumerTag := uuid.New().String()
+
 	deliveries, err := inputCh.Consume(
 		queueName,
 		consumerTag,
@@ -390,7 +390,6 @@ func (s *Server) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync
 		false, // no-wait.
 		s.consumeSettings.Args,
 	)
-
 	if err != nil {
 		return "", err
 	}
@@ -403,7 +402,12 @@ func (s *Server) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync
 	return consumerTag, nil
 }
 
-func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery, queueName string, wg *sync.WaitGroup) {
+func (s *Server) runHandler(
+	handler HandlerFunc,
+	deliveries <-chan amqp.Delivery,
+	queueName string,
+	wg *sync.WaitGroup,
+) {
 	wg.Add(1)
 	defer wg.Done()
 
@@ -464,7 +468,6 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 			response.immediate,
 			response.publishing,
 		)
-
 		if err != nil {
 			// Close the channel so ensure reconnect.
 			outCh.Close()
@@ -507,7 +510,12 @@ func cancelConsumers(channel *amqp.Channel, consumerTags []string) error {
 
 // declareAndBind will declare a queue, an exchange and the queue to the
 // exchange.
-func declareAndBind(inputCh *amqp.Channel, binding HandlerBinding, queueDeclareSettings QueueDeclareSettings, exchangeDeclareSettings ExchangeDeclareSettings) (string, error) {
+func declareAndBind(
+	inputCh *amqp.Channel,
+	binding HandlerBinding,
+	queueDeclareSettings QueueDeclareSettings,
+	exchangeDeclareSettings ExchangeDeclareSettings,
+) (string, error) {
 	queue, err := inputCh.QueueDeclare(
 		binding.QueueName,
 		queueDeclareSettings.Durable,
@@ -516,7 +524,6 @@ func declareAndBind(inputCh *amqp.Channel, binding HandlerBinding, queueDeclareS
 		false, // no-wait.
 		queueDeclareSettings.Args,
 	)
-
 	if err != nil {
 		return "", err
 	}

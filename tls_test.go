@@ -46,7 +46,7 @@ func createPrivKey(priv *rsa.PrivateKey) string {
 	f, _ := ioutil.TempFile(".", "priv*.key")
 	defer f.Close()
 
-	var privateKey = &pem.Block{
+	privateKey := &pem.Block{
 		Type:  "PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(priv),
 	}

@@ -89,6 +89,7 @@ linters-settings:
     include-go-root: false
     packages:
       - github.com/davecgh/go-spew/spew
+      - github.com/c2fo/testify
   misspell:
     # Correct spellings using locale preferences for US or UK.
     # Default is to use a neutral variety of English.
@@ -146,13 +147,17 @@ linters:
   enable-all: true
   disable:
     - dupl
+    - funlen
     - gocyclo
+    - gomnd
     - lll
     - maligned
     - nakedret
+    - nlreturn
+    - noctx
     - prealloc
     - scopelint
-    - funlen
+    - testpackage
   disable-all: false
   # presets:
   #   - bugs
