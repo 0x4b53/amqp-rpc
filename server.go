@@ -88,14 +88,21 @@ type Server struct {
 	// print most of what is happening internally.
 	// If nil, logging is not done.
 	debugLog LogFunc
+
+	baseContext       context.Context
+	baseContextCancel context.CancelFunc
 }
 
 // NewServer will return a pointer to a new Server.
 func NewServer(url string) *Server {
+	baseContext, cancelFunc := context.WithCancel(context.Background())
+
 	server := Server{
-		url:         url,
-		bindings:    []HandlerBinding{},
-		middlewares: []ServerMiddlewareFunc{},
+		url:               url,
+		bindings:          []HandlerBinding{},
+		middlewares:       []ServerMiddlewareFunc{},
+		baseContext:       baseContext,
+		baseContextCancel: cancelFunc,
 		dialconfig: amqp.Config{
 			Dial: DefaultDialer,
 		},
@@ -125,7 +132,7 @@ func (s *Server) setDefaults() {
 }
 
 // WithExchangeDeclareSettings sets configuration used when the server wants
-// to declare exchanges. Default settings are:
+// to declare exchanges.
 func (s *Server) WithExchangeDeclareSettings(settings ExchangeDeclareSettings) *Server {
 	s.exchangeDeclareSettings = settings
 
@@ -242,7 +249,6 @@ func (s *Server) ListenAndServe() {
 
 	for {
 		err := s.listenAndServe()
-
 		// If we couldn't run listenAndServe and an error was returned, make
 		// sure to check if the stopChan was closed - a user might know about
 		// connection problems and have call Stop(). If the channel isn't
@@ -342,18 +348,22 @@ func (s *Server) listenAndServe() error {
 		return err
 	}
 
-	// 2. We've told amqp to stop delivering messages, now we wait for all
+	// 2. Tell all handlers that we are stopping, in case they have any long
+	// running functions.
+	s.baseContextCancel()
+
+	// 3. We've told amqp to stop delivering messages, now we wait for all
 	// the consumers to finish inflight messages.
 	consumersWg.Done()
 	consumersWg.Wait()
 
-	// 3. Close the responses chan and wait until the consumers are finished.
+	// 4. Close the responses chan and wait until the consumers are finished.
 	// We might still have responses we want to send.
 	close(s.responses)
 	responderWg.Done()
 	responderWg.Wait()
 
-	// 4. We have no more messages incoming and we've published all our
+	// 5. We have no more messages incoming and we've published all our
 	// responses. The closing of connections and channels are deferred so we can
 	// just return now.
 	return nil
@@ -381,6 +391,7 @@ func (s *Server) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync
 	}
 
 	consumerTag := uuid.New().String()
+
 	deliveries, err := inputCh.Consume(
 		queueName,
 		consumerTag,
@@ -390,7 +401,6 @@ func (s *Server) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync
 		false, // no-wait.
 		s.consumeSettings.Args,
 	)
-
 	if err != nil {
 		return "", err
 	}
@@ -403,7 +413,12 @@ func (s *Server) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync
 	return consumerTag, nil
 }
 
-func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery, queueName string, wg *sync.WaitGroup) {
+func (s *Server) runHandler(
+	handler HandlerFunc,
+	deliveries <-chan amqp.Delivery,
+	queueName string,
+	wg *sync.WaitGroup,
+) {
 	wg.Add(1)
 	defer wg.Done()
 
@@ -425,7 +440,7 @@ func (s *Server) runHandler(handler HandlerFunc, deliveries <-chan amqp.Delivery
 			},
 		}
 
-		ctx := context.WithValue(context.Background(), CtxQueueName, queueName)
+		ctx := context.WithValue(s.baseContext, CtxQueueName, queueName)
 
 		go func(delivery amqp.Delivery) {
 			handler(ctx, &rw, delivery)
@@ -464,7 +479,6 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 			response.immediate,
 			response.publishing,
 		)
-
 		if err != nil {
 			// Close the channel so ensure reconnect.
 			outCh.Close()
@@ -507,7 +521,12 @@ func cancelConsumers(channel *amqp.Channel, consumerTags []string) error {
 
 // declareAndBind will declare a queue, an exchange and the queue to the
 // exchange.
-func declareAndBind(inputCh *amqp.Channel, binding HandlerBinding, queueDeclareSettings QueueDeclareSettings, exchangeDeclareSettings ExchangeDeclareSettings) (string, error) {
+func declareAndBind(
+	inputCh *amqp.Channel,
+	binding HandlerBinding,
+	queueDeclareSettings QueueDeclareSettings,
+	exchangeDeclareSettings ExchangeDeclareSettings,
+) (string, error) {
 	queue, err := inputCh.QueueDeclare(
 		binding.QueueName,
 		queueDeclareSettings.Durable,
@@ -516,7 +535,6 @@ func declareAndBind(inputCh *amqp.Channel, binding HandlerBinding, queueDeclareS
 		false, // no-wait.
 		queueDeclareSettings.Args,
 	)
-
 	if err != nil {
 		return "", err
 	}

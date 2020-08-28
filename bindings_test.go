@@ -13,9 +13,7 @@ import (
 )
 
 func TestFanout(t *testing.T) {
-	var (
-		timesCalled int64
-	)
+	var timesCalled int64
 
 	fanoutHandler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		atomic.AddInt64(&timesCalled, 1)

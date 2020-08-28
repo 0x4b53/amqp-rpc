@@ -454,7 +454,6 @@ func (c *Client) runPublisher(ouputChan *amqp.Channel) {
 				c.publishSettings.Immediate,
 				request.Publishing,
 			)
-
 			if err != nil {
 				ouputChan.Close()
 
@@ -657,7 +656,6 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 		false, // no-wait.
 		c.queueDeclareSettings.Args,
 	)
-
 	if err != nil {
 		return err
 	}
@@ -671,7 +669,6 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 		false, // no-wait.
 		c.consumeSettings.Args,
 	)
-
 	if err != nil {
 		return err
 	}

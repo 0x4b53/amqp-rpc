@@ -177,6 +177,7 @@ func TestClient_ConfirmsConsumer_return(t *testing.T) {
 		})
 	}
 }
+
 func TestClient_ConfirmsConsumer_confirm(t *testing.T) {
 	client := NewClient("")
 	client.requestsMap = RequestMap{

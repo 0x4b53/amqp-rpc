@@ -34,7 +34,7 @@ func (ma *MockAcknowledger) Ack(tag uint64, multiple bool) error {
 }
 
 // Nack increases Nacks.
-func (ma *MockAcknowledger) Nack(tag uint64, multiple bool, requeue bool) error {
+func (ma *MockAcknowledger) Nack(tag uint64, multiple, requeue bool) error {
 	ma.Nacks++
 	return nil
 }
@@ -205,7 +205,6 @@ func initTest() (server *Server, client *Client, start, stop func()) {
 				WithRoutingKey(defaultTestQueue).
 				WithResponse(false),
 		)
-
 		if err != nil {
 			panic(err)
 		}
