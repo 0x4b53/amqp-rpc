@@ -45,8 +45,7 @@ nomenclature is unique for RabbitMQ some prior experience is preferred.
 ## Project status
 
 This project has been used in production since october 2018 handling millions of
-requests both as server and client. The implementation is to be seen as stable
-altough until a proper v1.0 release tag is set the API may change.
+requests both as server and client.
 
 ## Server
 
