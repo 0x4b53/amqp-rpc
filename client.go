@@ -719,7 +719,7 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// If this request doesn't want a reply back (by setting Reply to false)
 	// this channel will get a nil message after publisher has Published the
 	// message.
-	r.response = make(chan *amqp.Delivery)
+	r.response = make(chan *amqp.Delivery, 1)
 
 	// This channel is sent to when the request is confirmed. This can happen
 	// both when confirm-mode is set. And if not set, it's automatically
