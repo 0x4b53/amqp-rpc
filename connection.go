@@ -2,9 +2,13 @@ package amqprpc
 
 import (
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/streadway/amqp"
 )
+
+const autoReconnectTimeout time.Duration = 500 * time.Millisecond
 
 // ErrUnexpectedConnClosed is returned by ListenAndServe() if the server
 // shuts down without calling Stop() and if AMQP does not give an error
@@ -103,11 +107,12 @@ type PublishSettings struct {
 	ConfirmMode bool
 }
 
-func monitorAndWait(stopChan chan struct{}, amqpErrs ...chan *amqp.Error) error {
+func monitorAndWait(stopChan <-chan struct{}, amqpErrs ...chan *amqp.Error) error {
 	result := make(chan error, len(amqpErrs))
 
 	// Setup monitoring for connections and channels, can be several connections and several channels.
 	// The first one closed will yield the error.
+	// TODO: Fix memory leak.
 	for _, errCh := range amqpErrs {
 		go func(c chan *amqp.Error) {
 			err, ok := <-c
@@ -124,6 +129,28 @@ func monitorAndWait(stopChan chan struct{}, amqpErrs ...chan *amqp.Error) error 
 		return err
 	case <-stopChan:
 		return nil
+	}
+}
+
+func autoReconnect(didStop, stop chan struct{}, startFunc func() error) {
+	defer close(didStop)
+
+	for {
+		err := startFunc()
+		if err != nil {
+			select {
+			case <-stop:
+				// Context want a shutdown, don't try to reconnect.
+				return
+			case <-time.After(autoReconnectTimeout):
+				// Try to reconnect.
+				fmt.Println("got err", err)
+				continue
+			}
+		}
+
+		// We got no error from startFunc, we assume a graceful shutdown
+		return
 	}
 }
 

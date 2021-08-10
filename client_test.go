@@ -623,3 +623,29 @@ func TestClient_OnStarted(t *testing.T) {
 		t.Error("OnStarted was never called")
 	}
 }
+
+func TestClient_StreamingResponse(t *testing.T) {
+	s := NewServer(testURL)
+	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		c := NewClient(testURL)
+		defer c.Stop()
+
+		for i := 0; i < 100; i++ {
+			fmt.Fprintf(rw, "Message %d", i)
+		}
+	}))
+
+	stop := startAndWait(s)
+	defer stop()
+
+	c := NewClient(testURL)
+	defer c.Stop()
+
+	request := NewRequest().
+		WithRoutingKey("myqueue").
+		WithResponse(true)
+
+	resp, err := c.Send(request)
+	assert.Nil(t, err)
+	assert.Equal(t, []byte{}, resp.Body)
+}

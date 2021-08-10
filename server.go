@@ -24,7 +24,7 @@ const (
 type HandlerFunc func(context.Context, *ResponseWriter, amqp.Delivery)
 
 // processedRequest is used to add the response from a handler func combined
-// with a amqp.Delivery. The reason we need to combine those is that we reply
+// with a amqp.Deli. The reason we need to combine those is that we reply
 // to each request in a separate go routine and the delivery is required to
 // determine on which queue to reply.
 type processedRequest struct {
