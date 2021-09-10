@@ -568,8 +568,6 @@ func (c *Client) runConfirmsConsumer(confirms chan amqp.Confirmation, returns ch
 			c.confirmRequest(request)
 
 			if !confirm.Ack {
-				c.errorLog("client: publishing is rejected by server: %s", stringifyRequestForLog(request))
-
 				c.respondErrorToRequest(request, ErrRequestRejected)
 
 				// Doesn't matter if the request wants the nil reply below because
