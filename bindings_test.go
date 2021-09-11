@@ -24,6 +24,7 @@ func TestFanout(t *testing.T) {
 		s.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
 
 		stop := startAndWait(s)
+
 		defer stop()
 	}
 

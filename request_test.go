@@ -7,6 +7,7 @@ import (
 
 	"github.com/streadway/amqp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRequest(t *testing.T) {
@@ -107,7 +108,10 @@ func TestRequestContext(t *testing.T) {
 
 	myMiddleFunc := func(next SendFunc) SendFunc {
 		return func(r *Request) (*amqp.Delivery, error) {
-			changeThroughMiddleware = r.Context.Value(ctxKey).(bool)
+			var ok bool
+			if changeThroughMiddleware, ok = r.Context.Value(ctxKey).(bool); !ok {
+				require.FailNow(t, "failed to assert context")
+			}
 
 			return next(r)
 		}
