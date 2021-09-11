@@ -78,6 +78,6 @@ jobs:
           debug: true
           # Hack to resolve package:
           # https://github.com/paambaati/codeclimate-action/issues/109#issuecomment-751311299
-          coverageCommand: go test -coverprofile c.out ./... && sed -i "s%github.com/0x4b53/%%" cover.out
+          coverageCommand: make coverage
           prefix: ${{ github.event.repository.name }}
           coverageLocations: "${{github.workspace}}/c.out:gocov"
