@@ -18,6 +18,7 @@ jobs:
           version: v1.42
 
   tests:
+    name: tests
     needs: golangci-lint # run after golangci-lint action to not produce duplicated errors
     strategy:
       matrix:
