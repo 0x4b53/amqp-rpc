@@ -75,7 +75,6 @@ jobs:
         env:
           CC_TEST_REPORTER_ID: 7d839e0bef19ceb83a38550bc5e651070cd1c15279069a90bdbaaad727d7c0cd
         with:
-          debug: true
           # Hack to resolve package:
           # https://github.com/paambaati/codeclimate-action/issues/109#issuecomment-751311299
           coverageCommand: make coverage
