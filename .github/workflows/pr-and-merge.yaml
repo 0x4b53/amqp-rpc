@@ -16,16 +16,17 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: lint
-        uses: golangci/golangci-lint-action@v1
+        uses:  golangci/golangci-lint-action@v2
         with:
-          version: v1.27
+          version: v1.42
+
   run-tests:
     needs: golangci-lint # run after golangci-lint action to not produce duplicated errors
     strategy:
       matrix:
         go:
-          - 1.13
-          - 1.14
+          - 1.16
+          - 1.17
         os:
           - ubuntu-latest
     runs-on: ${{ matrix.os }}
@@ -40,16 +41,20 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: ${{ matrix.go }}
+
       - name: Checkout code
         uses: actions/checkout@v2
+
       - name: Setup cache
         uses: actions/cache@v1
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: ${{ runner.os }}-go-
+
       - name: Test code
         run: go test -race -v ./...
+
   coverage:
     runs-on: ubuntu-latest
     services:
@@ -62,16 +67,22 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v2
         with:
-          go-version: 1.14
+          go-version: 1.17
+
       - name: Checkout code
         uses: actions/checkout@v2
+
       - name: Download cc-test-reporter
         run: curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+
       - name: Make cc-test-reporter executable
         run: chmod +x ./cc-test-reporter
+
       - name: run cc-test-reporter before-build
         run:  GIT_BRANCH=$GITHUB_HEAD_REF GIT_COMMIT_SHA=$(git rev-parse origin/$GITHUB_HEAD_REF) ./cc-test-reporter before-build
+
       - name: Test and publish code coverage
         run: go test -coverprofile c.out ./...
+
       - name: Publish test results
         run: GIT_BRANCH=$GITHUB_HEAD_REF GIT_COMMIT_SHA=${{ github.event.pull_request.head.sha }} ./cc-test-reporter after-build

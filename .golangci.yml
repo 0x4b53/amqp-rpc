@@ -146,11 +146,16 @@ linters-settings:
 linters:
   enable-all: true
   disable:
+    - cyclop
     - dupl
+    - exhaustivestruct
+    - forbidigo
     - funlen
+    - gci
     - gocognit
     - gocyclo
     - godox
+    - golint
     - gomnd
     - interfacer
     - lll
@@ -158,9 +163,11 @@ linters:
     - nakedret
     - nlreturn
     - noctx
+    - paralleltest
     - prealloc
     - scopelint
     - testpackage
+    - wrapcheck
   disable-all: false
   # presets:
   #   - bugs
