@@ -76,6 +76,8 @@ jobs:
           CC_TEST_REPORTER_ID: 7d839e0bef19ceb83a38550bc5e651070cd1c15279069a90bdbaaad727d7c0cd
         with:
           debug: true
-          coverageCommand: go test -coverprofile c.out ./...
-          prefix: ${{ github.workspace }}
+          # Hack to resolve package:
+          # https://github.com/paambaati/codeclimate-action/issues/109#issuecomment-751311299
+          coverageCommand: go test -coverprofile c.out ./... && sed -i "s%github.com/0x4b53/%%" cover.out
+          prefix: ${{ github.event.repository.name }}
           coverageLocations: "${{github.workspace}}/c.out:gocov"
