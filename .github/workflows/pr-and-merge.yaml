@@ -6,9 +6,6 @@ on:
       - master
   pull_request:
 
-env:
-  CC_TEST_REPORTER_ID: 7d839e0bef19ceb83a38550bc5e651070cd1c15279069a90bdbaaad727d7c0cd
-
 jobs:
   golangci-lint:
     name: golangci-lint
@@ -20,7 +17,7 @@ jobs:
         with:
           version: v1.42
 
-  run-tests:
+  tests:
     needs: golangci-lint # run after golangci-lint action to not produce duplicated errors
     strategy:
       matrix:
@@ -56,6 +53,8 @@ jobs:
         run: go test -race -v ./...
 
   coverage:
+    name: coverage
+    needs: [tests]
     runs-on: ubuntu-latest
     services:
       rabbitmq:
@@ -63,26 +62,21 @@ jobs:
         ports:
           - 5672:5672
           - 15672:15672
+
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
       - name: Install Go
         uses: actions/setup-go@v2
         with:
           go-version: 1.17
 
-      - name: Checkout code
-        uses: actions/checkout@v2
 
-      - name: Download cc-test-reporter
-        run: curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
-
-      - name: Make cc-test-reporter executable
-        run: chmod +x ./cc-test-reporter
-
-      - name: run cc-test-reporter before-build
-        run:  GIT_BRANCH=$GITHUB_HEAD_REF GIT_COMMIT_SHA=$(git rev-parse origin/$GITHUB_HEAD_REF) ./cc-test-reporter before-build
-
-      - name: Test and publish code coverage
-        run: go test -coverprofile c.out ./...
-
-      - name: Publish test results
-        run: GIT_BRANCH=$GITHUB_HEAD_REF GIT_COMMIT_SHA=${{ github.event.pull_request.head.sha }} ./cc-test-reporter after-build
+      - uses: paambaati/codeclimate-action@v2.7.5
+        env:
+          CC_TEST_REPORTER_ID: 7d839e0bef19ceb83a38550bc5e651070cd1c15279069a90bdbaaad727d7c0cd
+        with:
+          coverageCommand: go test -coverprofile c.out ./...
+          prefix: ${{ github.event.repository.name }}
+          coverageLocations: "${{github.workspace}}/c.out:gocov"
