@@ -71,11 +71,11 @@ jobs:
         with:
           go-version: 1.17
 
-
       - uses: paambaati/codeclimate-action@v2.7.5
         env:
           CC_TEST_REPORTER_ID: 7d839e0bef19ceb83a38550bc5e651070cd1c15279069a90bdbaaad727d7c0cd
         with:
+          debug: true
           coverageCommand: go test -coverprofile c.out ./...
-          prefix: ${{ github.event.repository.name }}
+          prefix: ${{ github.workspace }}
           coverageLocations: "${{github.workspace}}/c.out:gocov"
