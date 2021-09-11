@@ -185,8 +185,8 @@ func (c *Client) WithDialConfig(dc amqp.Config) *Client {
 }
 
 // WithTLS sets the TLS config in the dial config for the client.
-func (c *Client) WithTLS(tls *tls.Config) *Client {
-	c.dialconfig.TLSClientConfig = tls
+func (c *Client) WithTLS(tlsConfig *tls.Config) *Client {
+	c.dialconfig.TLSClientConfig = tlsConfig
 
 	return c
 }
@@ -394,6 +394,7 @@ func (c *Client) runOnce() error {
 		inputCh.NotifyClose(make(chan *amqp.Error)),
 		outputCh.NotifyClose(make(chan *amqp.Error)),
 	)
+
 	if err != nil {
 		return err
 	}
@@ -704,6 +705,8 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 
 // Send will send a Request by using a amqp.Publishing.
 func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
+	// nolint:gocritic // We don't want to overwrite any slice so it's
+	// intentional to store append result in new slice.
 	middlewares := append(c.middlewares, r.middlewares...)
 
 	return ClientMiddlewareChain(c.Sender, middlewares...)(r)

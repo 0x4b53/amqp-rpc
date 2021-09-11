@@ -1,0 +1,83 @@
+---
+name: CI
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  golangci-lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: lint
+        uses:  golangci/golangci-lint-action@v2
+        with:
+          version: v1.42
+
+  tests:
+    name: tests
+    needs: golangci-lint # run after golangci-lint action to not produce duplicated errors
+    strategy:
+      matrix:
+        go:
+          - 1.16
+          - 1.17
+        os:
+          - ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    services:
+      rabbitmq:
+        image: rabbitmq:3-management
+        ports:
+          - 5672:5672
+          - 15672:15672
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup cache
+        uses: actions/cache@v1
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: ${{ runner.os }}-go-
+
+      - name: Test code
+        run: go test -race -v ./...
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    services:
+      rabbitmq:
+        image: rabbitmq:3-management
+        ports:
+          - 5672:5672
+          - 15672:15672
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.17
+
+      - uses: paambaati/codeclimate-action@v2.7.5
+        env:
+          CC_TEST_REPORTER_ID: 7d839e0bef19ceb83a38550bc5e651070cd1c15279069a90bdbaaad727d7c0cd
+        with:
+          # Hack to resolve package:
+          # https://github.com/paambaati/codeclimate-action/issues/109#issuecomment-751311299
+          coverageCommand: make coverage
+          prefix: ${{ github.event.repository.name }}
+          coverageLocations: "${{github.workspace}}/c.out:gocov"
