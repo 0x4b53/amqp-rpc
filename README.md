@@ -8,11 +8,11 @@
 <h4 align="center">RabbitMQ RPC Framework</h4>
 
 <p align="center">
-  <a href="https://godoc.org/github.com/0x4b53/amqp-rpc">
-    <img src="https://godoc.org/github.com/0x4b53/amqp-rpc?status.svg" alt="GoDoc">
+  <a href="https://pkg.go.dev/github.com/0x4b53/amqp-rpc">
+    <img src="https://pkg.go.dev/badge/github.com/0x4b53/amqp-rpc.svg" alt="Go Reference">
   </a>
-  <a href="https://travis-ci.com/0x4b53/amqp-rpc">
-    <img src="https://travis-ci.com/0x4b53/amqp-rpc.svg?branch=master">
+  <a href="https://github.com/0x4b53/amqp-rpc/actions/workflows/pr-and-merge.yaml">
+    <img src="https://github.com/0x4b53/amqp-rpc/actions/workflows/pr-and-merge.yaml/badge.svg">
   </a>
   <a href="https://goreportcard.com/report/github.com/0x4b53/amqp-rpc">
     <img src="https://goreportcard.com/badge/github.com/0x4b53/amqp-rpc">
@@ -22,9 +22,6 @@
   </a>
   <a href="https://codeclimate.com/github/0x4b53/amqp-rpc/test_coverage">
     <img src="https://api.codeclimate.com/v1/badges/409b55c59ecc1b40595b/test_coverage">
-  </a>
-  <a href="https://golangci.com/r/github.com/0x4b53/amqp-rpc">
-    <img src="https://golangci.com/badges/github.com/0x4b53/amqp-rpc.svg">
   </a>
 </p>
 

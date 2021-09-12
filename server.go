@@ -177,8 +177,8 @@ func (s *Server) WithDialConfig(c amqp.Config) *Server {
 }
 
 // WithTLS sets the TLS config in the dial config for the server.
-func (s *Server) WithTLS(tls *tls.Config) *Server {
-	s.dialconfig.TLSClientConfig = tls
+func (s *Server) WithTLS(tlsConfig *tls.Config) *Server {
+	s.dialconfig.TLSClientConfig = tlsConfig
 
 	return s
 }

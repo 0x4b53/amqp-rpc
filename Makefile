@@ -1,6 +1,6 @@
 CURL               ?= curl
 DOCKER_COMPOSE      = docker-compose
-GOLANGCI_VERSION    = v1.21.0
+GOLANGCI_VERSION    = v1.42.0
 GOPATH              = $(shell go env GOPATH)
 
 all: lint test ## Run linting and testing
@@ -20,8 +20,7 @@ $(GOPATH)/bin/golangci-lint: ## Ensure golangci-lint is installed
 	$(CURL) -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOPATH)/bin $(GOLANGCI_VERSION)
 
 # This will grep the double comment marker (##) and map all targets to the
-# comment which will just print the comment next to each target for documenting
-# purposes.
+# comment which will just print the comment next to each target for documenting purposes.
 help: ## Show this help text
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| sort \
@@ -36,5 +35,9 @@ lint: $(GOPATH)/bin/golangci-lint ## Lint the code
 
 test: compose ## Run all tests (with race detection)
 	go test ./... -race -v
+
+coverage:
+	go test -coverprofile c.out ./...
+	@sed -i "s%github.com/0x4b53/%%" c.out
 
 .PHONY: all compose compose-down help hooks lint test
