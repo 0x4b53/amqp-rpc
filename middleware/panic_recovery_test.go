@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
 
 	amqprpc "github.com/0x4b53/amqp-rpc"

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type ctxKey string
@@ -123,7 +123,7 @@ func (s *Server) setDefaults() {
 	s.consumeSettings = ConsumeSettings{
 		// Use a reasonable default value.
 		// https://www.rabbitmq.com/blog/2012/04/25/rabbitmq-performance-measurements-part-2/
-		// https://godoc.org/github.com/streadway/amqp#Channel.Qos
+		// https://godoc.org/github.com/rabbitmq/amqp091-go#Channel.Qos
 		QoSPrefetchCount: 10,
 
 		// Default to letting the AMQP server auto-ack the deliveries.
@@ -281,7 +281,7 @@ func (s *Server) listenAndServe() error {
 	// "It's advisable to use separate connections for Channel.Publish and
 	// Channel.Consume so not to have TCP pushback on publishing affect the
 	// ability to consume messages [...]"
-	// -- https://godoc.org/github.com/streadway/amqp#Channel.Consume
+	// -- https://godoc.org/github.com/rabbitmq/amqp091-go#Channel.Consume
 	inputConn, outputConn, err := createConnections(s.url, s.dialconfig)
 	if err != nil {
 		return err

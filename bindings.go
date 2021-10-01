@@ -1,7 +1,7 @@
 package amqprpc
 
 import (
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // Exchanges are enteties where messages are published. This defines the available

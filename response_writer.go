@@ -1,6 +1,6 @@
 package amqprpc
 
-import "github.com/streadway/amqp"
+import amqp "github.com/rabbitmq/amqp091-go"
 
 /*
 ResponseWriter is used by a handler to construct an RPC response.

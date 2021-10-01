@@ -465,7 +465,7 @@ method such as the [logrus] logger which has `Debugf` and `Errorf` methods.
 There are a few examples included in the [examples] folder. For more information
 about how to customize your setup, see the [documentation].
 
-  [Go amqp]: https://github.com/streadway/amqp
+  [Go amqp]: https://github.com/rabbitmq/amqp091-go
   [RabbitMQ]: https://www.rabbitmq.com
   [RabbitMQ binding]: https://www.rabbitmq.com/tutorials/tutorial-four-go.html
   [HTTP]: https://godoc.org/net/http

@@ -1,7 +1,7 @@
 package amqprpc
 
 import (
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // AwareAcknowledger implements the amqp.Acknowledger interface with the

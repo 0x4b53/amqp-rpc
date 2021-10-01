@@ -14,7 +14,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 
 	amqprpc "github.com/0x4b53/amqp-rpc"
 )
@@ -80,7 +80,7 @@ func handlePassword(next amqprpc.SendFunc) amqprpc.SendFunc {
 	}
 }
 
-//Middleware executing before or after being handled in server.
+// Middleware executing before or after being handled in server.
 func exchangeHeader(next amqprpc.HandlerFunc) amqprpc.HandlerFunc {
 	return func(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
 		next(ctx, rw, d)
