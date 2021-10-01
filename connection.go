@@ -3,7 +3,7 @@ package amqprpc
 import (
 	"errors"
 
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // ErrUnexpectedConnClosed is returned by ListenAndServe() if the server

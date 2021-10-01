@@ -7,7 +7,7 @@ import (
 
 	amqprpc "github.com/0x4b53/amqp-rpc"
 
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // nolint: gochecknoglobals

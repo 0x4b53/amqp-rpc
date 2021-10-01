@@ -8,11 +8,13 @@ import (
 
 	amqprpc "github.com/0x4b53/amqp-rpc"
 
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-var url = "amqps://guest:guest@localhost:5672/"
-var logger = log.New(os.Stdout, "[amqp-rpc]", log.LstdFlags)
+var (
+	url    = "amqps://guest:guest@localhost:5672/"
+	logger = log.New(os.Stdout, "[amqp-rpc]", log.LstdFlags)
+)
 
 func main() {
 	cert := amqprpc.Certificates{

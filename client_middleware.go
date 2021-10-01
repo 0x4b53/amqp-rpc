@@ -1,7 +1,7 @@
 package amqprpc
 
 import (
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // SendFunc represents the function that Send does. It takes a Request as input

@@ -12,7 +12,7 @@ import (
 	amqprpc "github.com/0x4b53/amqp-rpc"
 	amqprpcmw "github.com/0x4b53/amqp-rpc/middleware"
 
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 func main() {
