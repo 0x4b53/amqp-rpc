@@ -43,7 +43,11 @@ func TestTLS(t *testing.T) {
 }
 
 func createPrivKey(priv *rsa.PrivateKey) string {
-	f, _ := ioutil.TempFile(".", "priv*.key")
+	f, err := os.CreateTemp(".", "priv*.key")
+	if err != nil {
+		panic(err)
+	}
+
 	defer f.Close()
 
 	privateKey := &pem.Block{

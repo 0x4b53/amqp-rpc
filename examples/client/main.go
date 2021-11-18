@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	amqprpc "github.com/0x4b53/amqp-rpc"
+	amqprpc "github.com/0x4b53/amqp-rpc/v2"
 )
 
 func main() {
@@ -41,7 +41,6 @@ func heartbeat(c *amqprpc.Client) {
 				WithBody(time.Now().String()).
 				WithTimeout(100 * time.Millisecond),
 		)
-
 		if err != nil {
 			fmt.Println("Heartbeat error: ", err)
 		}

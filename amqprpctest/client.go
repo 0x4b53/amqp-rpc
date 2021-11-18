@@ -1,7 +1,7 @@
 package amqprpctest
 
 import (
-	amqprpc "github.com/0x4b53/amqp-rpc"
+	amqprpc "github.com/0x4b53/amqp-rpc/v2"
 )
 
 // NewTestClient returns a client with a custom send function to use for testing.

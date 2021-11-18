@@ -5,7 +5,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	amqprpc "github.com/0x4b53/amqp-rpc"
+	amqprpc "github.com/0x4b53/amqp-rpc/v2"
 )
 
 // AckDelivery is a middleware that will acknowledge the delivery after the
