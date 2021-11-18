@@ -12,14 +12,6 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-type ctxKey string
-
-const (
-	// CtxQueueName can be used to get the queue name from the context.Context
-	// inside the HandlerFunc.
-	CtxQueueName ctxKey = "queue_name"
-)
-
 // HandlerFunc is the function that handles all request based on the routing key.
 type HandlerFunc func(context.Context, *ResponseWriter, amqp.Delivery)
 
@@ -88,21 +80,14 @@ type Server struct {
 	// print most of what is happening internally.
 	// If nil, logging is not done.
 	debugLog LogFunc
-
-	baseContext       context.Context
-	baseContextCancel context.CancelFunc
 }
 
 // NewServer will return a pointer to a new Server.
 func NewServer(url string) *Server {
-	baseContext, cancelFunc := context.WithCancel(context.Background())
-
 	server := Server{
-		url:               url,
-		bindings:          []HandlerBinding{},
-		middlewares:       []ServerMiddlewareFunc{},
-		baseContext:       baseContext,
-		baseContextCancel: cancelFunc,
+		url:         url,
+		bindings:    []HandlerBinding{},
+		middlewares: []ServerMiddlewareFunc{},
 		dialconfig: amqp.Config{
 			Dial: DefaultDialer,
 		},
@@ -348,10 +333,6 @@ func (s *Server) listenAndServe() error {
 		return err
 	}
 
-	// 2. Tell all handlers that we are stopping, in case they have any long
-	// running functions.
-	s.baseContextCancel()
-
 	// 3. We've told amqp to stop delivering messages, now we wait for all
 	// the consumers to finish inflight messages.
 	consumersWg.Done()
@@ -440,7 +421,9 @@ func (s *Server) runHandler(
 			},
 		}
 
-		ctx := context.WithValue(s.baseContext, CtxQueueName, queueName)
+		ctx := context.Background()
+		ctx = ContextWithShutdownChan(ctx, s.stopChan)
+		ctx = ContextWithQueueName(ctx, queueName)
 
 		go func(delivery amqp.Delivery) {
 			handler(ctx, &rw, delivery)

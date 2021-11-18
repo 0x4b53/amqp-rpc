@@ -3,7 +3,7 @@ package amqprpc
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"io/ioutil"
+	"os"
 )
 
 // Certificates represents the certificate, the key and the CA to use
@@ -30,7 +30,7 @@ func (c *Certificates) TLSConfig() *tls.Config {
 	tlsConfig := new(tls.Config)
 	tlsConfig.RootCAs = certPool
 
-	if ca, err := ioutil.ReadFile(c.CA); err == nil {
+	if ca, err := os.ReadFile(c.CA); err == nil {
 		tlsConfig.RootCAs.AppendCertsFromPEM(ca)
 	}
 

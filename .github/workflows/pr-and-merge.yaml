@@ -13,9 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: lint
-        uses:  golangci/golangci-lint-action@v2
+        uses: golangci/golangci-lint-action@v2
         with:
-          version: v1.42
+          version: v1.43
 
   tests:
     name: tests
@@ -23,7 +23,6 @@ jobs:
     strategy:
       matrix:
         go:
-          - 1.16
           - 1.17
         os:
           - ubuntu-latest

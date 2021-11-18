@@ -78,7 +78,7 @@ func TestNoAutomaticAck(t *testing.T) {
 func TestMiddleware(t *testing.T) {
 	mw := func(next HandlerFunc) HandlerFunc {
 		return func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
-			if ctx.Value(CtxQueueName).(string) == "denied" {
+			if queueName, _ := QueueNameFromContext(ctx); queueName == "denied" {
 				fmt.Fprint(rw, "routing key 'denied' is not allowed")
 				return
 			}
@@ -240,14 +240,17 @@ func TestServerConfig(t *testing.T) {
 func TestContextDoneWhenServerStopped(t *testing.T) {
 	server, client, start, stop := initTest()
 
-	ctxDone := make(chan bool, 1)
+	isShuttingDown := make(chan bool, 1)
 
 	server.Bind(DirectBinding("context.test", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		shutdownCh, ok := ShutdownChanFromContext(ctx)
+		require.True(t, ok)
+
 		select {
-		case <-ctx.Done():
-			ctxDone <- true
+		case <-shutdownCh:
+			isShuttingDown <- true
 		case <-time.After(5 * time.Second):
-			ctxDone <- false
+			isShuttingDown <- false
 		}
 	}))
 
@@ -264,7 +267,7 @@ func TestContextDoneWhenServerStopped(t *testing.T) {
 	stop()
 
 	select {
-	case wasDone := <-ctxDone:
+	case wasDone := <-isShuttingDown:
 		assert.True(t, wasDone)
 	case <-time.After(10 * time.Second):
 		t.Fatalf("handler was never called")
