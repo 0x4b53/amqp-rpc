@@ -2,7 +2,6 @@ package amqprpc
 
 import (
 	"io"
-	"io/ioutil"
 	"log"
 	"testing"
 	"time"
@@ -28,7 +27,7 @@ func TestServerLogging(t *testing.T) {
 		require.NoError(t, writer.Close())
 	}()
 
-	buf, err := ioutil.ReadAll(reader)
+	buf, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +55,7 @@ func TestClientLogging(t *testing.T) {
 		_ = writer.Close()
 	}()
 
-	buf, err := ioutil.ReadAll(reader)
+	buf, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatal(err)
 	}

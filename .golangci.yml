@@ -42,7 +42,6 @@ output:
   # print linter name in the end of issue text, default is true
   print-linter-name: true
 
-
 # all available settings of specific linters
 linters-settings:
   errcheck:
@@ -167,6 +166,7 @@ linters:
     - prealloc
     - scopelint
     - testpackage
+    - varnamelen
     - wrapcheck
   disable-all: false
   # presets:
@@ -174,14 +174,13 @@ linters:
   #   - unused
   fast: false
 
-
 issues:
   # List of regexps of issue texts to exclude, empty list by default.
   # But independently from this option we use default exclude patterns,
   # it can be disabled by `exclude-use-default: false`. To list all
   # excluded by default patterns execute `golangci-lint run --help`
   exclude:
-    - 'can be .*testify/assert.TestingT'
+    - "can be .*testify/assert.TestingT"
     - 'declaration of "err" shadows declaration'
     # Global variables ending with Re should be ignored (like with Err and _).
     # See https://github.com/leighmcculloch/gochecknoglobals/issues/6
@@ -209,5 +208,4 @@ issues:
   # of integration: much better don't allow issues in new code.
   # Default is false.
   new: false
-
 # vim: set sw=2 ts=2 et:
