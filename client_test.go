@@ -412,7 +412,10 @@ func TestClientRetry(t *testing.T) {
 
 			// Closing only for writing ensures that the amqp.Connection doesn't know
 			// that it's been closed.
-			require.NoError(t, conn.(*net.TCPConn).CloseWrite())
+			c, ok := conn.(*net.TCPConn)
+
+			require.True(t, ok)
+			require.NoError(t, c.CloseWrite())
 
 			_, err := client.Send(
 				NewRequest().
@@ -429,7 +432,10 @@ func TestClientRetry(t *testing.T) {
 			// Simulate that we've already retried this one.
 			req.numRetries = 2
 
-			require.NoError(t, conn.(*net.TCPConn).CloseWrite())
+			c, ok = conn.(*net.TCPConn)
+
+			require.True(t, ok)
+			require.NoError(t, c.CloseWrite())
 
 			_, err = client.Send(req)
 			require.Error(t, err)
@@ -445,7 +451,10 @@ func TestClientTimeout(t *testing.T) {
 	server.Bind(DirectBinding("timeout-queue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		expiration, _ := strconv.Atoi(d.Expiration)
 
-		if d.Headers["timeout"].(bool) {
+		timeout, ok := d.Headers["timeout"].(bool)
+		require.True(t, ok)
+
+		if timeout {
 			assert.NotEqual(t, 0, expiration)
 		} else {
 			assert.Equal(t, 0, expiration)

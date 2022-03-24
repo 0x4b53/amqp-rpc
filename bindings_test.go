@@ -20,15 +20,15 @@ func TestFanout(t *testing.T) {
 	}
 
 	for range make([]struct{}, 3) {
-		s := NewServer(testURL)
+		s := NewServer(testURL, nil)
 		s.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
 
 		stop := startAndWait(s)
 
-		defer stop()
+		defer stop() // nolint:gocritic //deferInLoop
 	}
 
-	c := NewClient(testURL)
+	c := NewClient(testURL, nil)
 	defer c.Stop()
 
 	_, err := c.Send(NewRequest().WithExchange("fanout-exchange").WithResponse(false))

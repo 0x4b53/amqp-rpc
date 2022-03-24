@@ -132,7 +132,7 @@ func closeConnections(names ...string) {
 			continue
 		}
 
-		connectionURL := fmt.Sprintf("%s/connections/%s", serverAPITestURL, url.PathEscape(conn["name"].(string)))
+		connectionURL := fmt.Sprintf("%s/connections/%s", serverAPITestURL, url.PathEscape(conn["name"].(string))) // nolint:forcetypeassert // Should never fail.
 
 		req, err := http.NewRequest("DELETE", connectionURL, http.NoBody)
 		if err != nil {
@@ -151,7 +151,7 @@ func closeConnections(names ...string) {
 }
 
 func testServer() *Server {
-	server := NewServer(testURL).
+	server := NewServer(testURL, nil).
 		WithDebugLogger(testLogFunc("debug")).
 		WithErrorLogger(testLogFunc("ERROR")).
 		WithDialConfig(
@@ -170,7 +170,7 @@ func testServer() *Server {
 }
 
 func testClient() *Client {
-	return NewClient(testURL).
+	return NewClient(testURL, nil).
 		WithDebugLogger(testLogFunc("debug")).
 		WithErrorLogger(testLogFunc("ERROR")).
 		WithDialConfig(

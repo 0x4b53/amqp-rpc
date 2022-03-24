@@ -37,7 +37,7 @@ type Request struct {
 	// Context is a context which you can use to pass data from where the
 	// request is created to middlewares. By default this will be a
 	// context.Background()
-	Context context.Context
+	Context context.Context // nolint:containedctx // Needed in the struct.
 
 	// middlewares holds slice of middlewares to run before or after the client
 	// sends a request. This is only executed for the specific request.
