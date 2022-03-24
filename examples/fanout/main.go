@@ -14,9 +14,9 @@ import (
 var timesCalled = 0
 
 func main() {
-	s1 := amqprpc.NewServer("amqp://guest:guest@localhost:5672/", nil)
-	s2 := amqprpc.NewServer("amqp://guest:guest@localhost:5672/", nil)
-	s3 := amqprpc.NewServer("amqp://guest:guest@localhost:5672/", nil)
+	s1 := amqprpc.NewServer("amqp://guest:guest@localhost:5672/")
+	s2 := amqprpc.NewServer("amqp://guest:guest@localhost:5672/")
+	s3 := amqprpc.NewServer("amqp://guest:guest@localhost:5672/")
 
 	// No need for three handlers but it's just to show that different methods
 	// will be called.
@@ -34,7 +34,7 @@ func main() {
 
 	time.Sleep(1 * time.Second)
 
-	c := amqprpc.NewClient("amqp://guest:guest@localhost:5672/", nil)
+	c := amqprpc.NewClient("amqp://guest:guest@localhost:5672/")
 	r := amqprpc.NewRequest().
 		WithExchange("cool-exchange").
 		WithBody("Seding fanout").

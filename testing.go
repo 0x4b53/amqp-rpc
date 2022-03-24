@@ -151,7 +151,7 @@ func closeConnections(names ...string) {
 }
 
 func testServer() *Server {
-	server := NewServer(testURL, nil).
+	server := NewServer(testURL).
 		WithDebugLogger(testLogFunc("debug")).
 		WithErrorLogger(testLogFunc("ERROR")).
 		WithDialConfig(
@@ -170,7 +170,7 @@ func testServer() *Server {
 }
 
 func testClient() *Client {
-	return NewClient(testURL, nil).
+	return NewClient(testURL).
 		WithDebugLogger(testLogFunc("debug")).
 		WithErrorLogger(testLogFunc("ERROR")).
 		WithDialConfig(

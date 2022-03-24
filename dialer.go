@@ -18,14 +18,7 @@ type DialConf struct {
 
 // DefaultDialer will return the default RPC server default implementation of
 // a dialer. With the DialConf parameter the default timeous can be specified.
-func DefaultDialer(config *DialConf) Dialer {
-	if config == nil {
-		config = &DialConf{
-			DialTimeout: 2 * time.Second,
-			Deadline:    2 * time.Second,
-		}
-	}
-
+func DefaultDialer(config DialConf) Dialer {
 	return func(network, addr string) (net.Conn, error) {
 		conn, err := net.DialTimeout(network, addr, config.DialTimeout)
 		if err != nil {

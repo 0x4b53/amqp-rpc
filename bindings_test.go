@@ -20,7 +20,7 @@ func TestFanout(t *testing.T) {
 	}
 
 	for range make([]struct{}, 3) {
-		s := NewServer(testURL, nil)
+		s := NewServer(testURL)
 		s.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
 
 		stop := startAndWait(s)
@@ -28,7 +28,7 @@ func TestFanout(t *testing.T) {
 		defer stop() // nolint:gocritic //deferInLoop
 	}
 
-	c := NewClient(testURL, nil)
+	c := NewClient(testURL)
 	defer c.Stop()
 
 	_, err := c.Send(NewRequest().WithExchange("fanout-exchange").WithResponse(false))
@@ -40,8 +40,8 @@ func TestFanout(t *testing.T) {
 }
 
 func TestTopic(t *testing.T) {
-	s := NewServer(testURL, nil)
-	c := NewClient(testURL, nil)
+	s := NewServer(testURL)
+	c := NewClient(testURL)
 
 	defer c.Stop()
 
@@ -70,8 +70,8 @@ func TestTopic(t *testing.T) {
 }
 
 func TestHeaders(t *testing.T) {
-	s := NewServer(testURL, nil)
-	c := NewClient(testURL, nil)
+	s := NewServer(testURL)
+	c := NewClient(testURL)
 
 	defer c.Stop()
 

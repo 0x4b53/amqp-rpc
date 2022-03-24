@@ -21,7 +21,7 @@ func main() {
 		CA: "cacert.pem",
 	}
 
-	s := amqprpc.NewServer(url, nil).WithDialConfig(amqp.Config{
+	s := amqprpc.NewServer(url).WithDialConfig(amqp.Config{
 		TLSClientConfig: cert.TLSConfig(),
 	})
 	s.WithErrorLogger(logger.Printf)
@@ -45,7 +45,7 @@ func handleClientUsage(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.D
 		CA: "cacert.pem",
 	}
 
-	c := amqprpc.NewClient("amqps://guest:guest@localhost:5671/", nil).
+	c := amqprpc.NewClient("amqps://guest:guest@localhost:5671/").
 		WithTLS(cert.TLSConfig())
 
 	request := amqprpc.NewRequest().

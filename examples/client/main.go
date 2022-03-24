@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	c := amqprpc.NewClient("amqp://guest:guest@localhost:5672/", nil)
+	c := amqprpc.NewClient("amqp://guest:guest@localhost:5672/")
 	c.WithErrorLogger(log.New(os.Stdout, "ERROR - ", log.LstdFlags).Printf)
 	c.WithDebugLogger(log.New(os.Stdout, "DEBUG - ", log.LstdFlags).Printf)
 

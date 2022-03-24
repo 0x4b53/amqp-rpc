@@ -27,7 +27,7 @@ var (
 func main() {
 	go startServer()
 
-	c := amqprpc.NewClient(url, nil).AddMiddleware(handlePassword)
+	c := amqprpc.NewClient(url).AddMiddleware(handlePassword)
 	r := amqprpc.NewRequest().WithRoutingKey("exchanger")
 
 	for _, i := range []int{1, 2, 3} {
@@ -90,7 +90,7 @@ func exchangeHeader(next amqprpc.HandlerFunc) amqprpc.HandlerFunc {
 }
 
 func startServer() {
-	s := amqprpc.NewServer(url, nil)
+	s := amqprpc.NewServer(url)
 
 	s.AddMiddleware(exchangeHeader)
 

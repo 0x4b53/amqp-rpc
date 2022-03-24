@@ -133,11 +133,14 @@ type Client struct {
 // It is also possible to create a custom amqp.Config with whatever
 // configuration desired and that will be used as dial configuration when
 // connection to the message bus.
-func NewClient(url string, dialConfig *DialConf) *Client {
+func NewClient(url string) *Client {
 	c := &Client{
 		url: url,
 		dialconfig: amqp.Config{
-			Dial: DefaultDialer(dialConfig),
+			Dial: DefaultDialer(DialConf{
+				DialTimeout: 10 * time.Second,
+				Deadline:    10 * time.Second,
+			}),
 		},
 		requests: make(chan *Request),
 		requestsMap: RequestMap{
@@ -180,6 +183,18 @@ func (c *Client) OnStarted(f OnStartedFunc) {
 // WithDialConfig sets the dial config used for the client.
 func (c *Client) WithDialConfig(dc amqp.Config) *Client {
 	c.dialconfig = dc
+
+	return c
+}
+
+// WithDialTimeout sets the DialTimeout and handshake deadlines to timeout.
+func (c *Client) WithDialTimeout(timeout time.Duration) *Client {
+	c.dialconfig = amqp.Config{
+		Dial: DefaultDialer(DialConf{
+			DialTimeout: timeout,
+			Deadline:    timeout,
+		}),
+	}
 
 	return c
 }
