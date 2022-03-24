@@ -16,7 +16,7 @@ func TestRequest(t *testing.T) {
 		url    = "amqp://guest:guest@localhost:5672/"
 	)
 
-	s := NewServer(url)
+	s := NewServer(url, nil)
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
@@ -24,7 +24,7 @@ func TestRequest(t *testing.T) {
 	stop := startAndWait(s)
 	defer stop()
 
-	client := NewClient(url)
+	client := NewClient(url, nil)
 	defer client.Stop()
 
 	assert.NotNil(t, client, "client exist")
@@ -120,7 +120,7 @@ func TestRequestContext(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxKey, true)
 	r := NewRequest().WithContext(ctx)
 
-	c := NewClient("").AddMiddleware(myMiddleFunc)
+	c := NewClient("", nil).AddMiddleware(myMiddleFunc)
 	c.Sender = func(r *Request) (*amqp.Delivery, error) {
 		// Usually i would send something...
 		return &amqp.Delivery{}, nil

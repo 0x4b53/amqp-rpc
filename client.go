@@ -133,11 +133,11 @@ type Client struct {
 // It is also possible to create a custom amqp.Config with whatever
 // configuration desired and that will be used as dial configuration when
 // connection to the message bus.
-func NewClient(url string) *Client {
+func NewClient(url string, dialConfig *DialConf) *Client {
 	c := &Client{
 		url: url,
 		dialconfig: amqp.Config{
-			Dial: DefaultDialer,
+			Dial: DefaultDialer(dialConfig),
 		},
 		requests: make(chan *Request),
 		requestsMap: RequestMap{

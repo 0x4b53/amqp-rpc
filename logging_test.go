@@ -17,7 +17,7 @@ func TestServerLogging(t *testing.T) {
 	go func() {
 		logger := log.New(writer, "TEST", log.LstdFlags)
 
-		s := NewServer(testURL)
+		s := NewServer(testURL, nil)
 		s.WithDebugLogger(logger.Printf)
 		s.WithErrorLogger(logger.Printf)
 
@@ -42,7 +42,7 @@ func TestClientLogging(t *testing.T) {
 	go func() {
 		logger := log.New(writer, "TEST", log.LstdFlags)
 
-		c := NewClient("amqp://guest:guest@localhost:5672/")
+		c := NewClient("amqp://guest:guest@localhost:5672/", nil)
 		c.WithDebugLogger(logger.Printf)
 		c.WithErrorLogger(logger.Printf)
 

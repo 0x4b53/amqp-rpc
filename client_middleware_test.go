@@ -51,7 +51,7 @@ func TestClientMiddlewareChain(t *testing.T) {
 }
 
 func TestClientClientAddMiddlewares(t *testing.T) {
-	c := NewClient("")
+	c := NewClient("", nil)
 
 	assert.Equal(t, 0, len(c.middlewares), "zero middlewares at start")
 

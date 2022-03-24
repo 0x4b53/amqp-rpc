@@ -118,7 +118,7 @@ func TestMiddleware(t *testing.T) {
 }
 
 func TestServerReconnect(t *testing.T) {
-	s := NewServer(testURL).
+	s := NewServer(testURL, nil).
 		WithDialConfig(amqp.Config{
 			Properties: amqp.Table{
 				"connection_name": "server-reconnect-test",
@@ -134,7 +134,7 @@ func TestServerReconnect(t *testing.T) {
 	stop := startAndWait(s)
 	defer stop()
 
-	c := NewClient(testURL)
+	c := NewClient(testURL, nil)
 	defer c.Stop()
 
 	request := NewRequest().WithRoutingKey("myqueue")
@@ -153,7 +153,7 @@ func TestServerReconnect(t *testing.T) {
 func TestServerOnStarted(t *testing.T) {
 	errs := make(chan string, 4)
 
-	s := NewServer(testURL)
+	s := NewServer(testURL, nil)
 	s.OnStarted(func(inC, outC *amqp.Connection, inCh, outCh *amqp.Channel) {
 		if inC == nil {
 			errs <- "inC was nil"
@@ -185,7 +185,7 @@ func TestServerOnStarted(t *testing.T) {
 }
 
 func TestStopWhenStarting(t *testing.T) {
-	s := NewServer("amqp://guest:guest@wont-connect.com:5672")
+	s := NewServer("amqp://guest:guest@wont-connect.com:5672", nil)
 	done := make(chan struct{})
 
 	go func() {
@@ -209,7 +209,7 @@ func TestStopWhenStarting(t *testing.T) {
 }
 
 func TestServerConfig(t *testing.T) {
-	s := NewServer(testURL)
+	s := NewServer(testURL, nil)
 	assert.NotNil(t, s)
 	assert.True(t, s.exchangeDeclareSettings.Durable)
 	assert.Equal(t, s.consumeSettings.QoSPrefetchCount, 10)

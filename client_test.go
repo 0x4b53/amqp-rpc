@@ -104,7 +104,7 @@ func TestClientReturn(t *testing.T) {
 }
 
 func TestClient_ConfirmsConsumer_return(t *testing.T) {
-	client := NewClient("")
+	client := NewClient("", nil)
 	client.requestsMap = RequestMap{
 		byDeliveryTag:   make(map[uint64]*Request),
 		byCorrelationID: make(map[string]*Request),
@@ -179,7 +179,7 @@ func TestClient_ConfirmsConsumer_return(t *testing.T) {
 }
 
 func TestClient_ConfirmsConsumer_confirm(t *testing.T) {
-	client := NewClient("")
+	client := NewClient("", nil)
 	client.requestsMap = RequestMap{
 		byDeliveryTag:   make(map[uint64]*Request),
 		byCorrelationID: make(map[string]*Request),
@@ -279,7 +279,7 @@ func TestClient_ConfirmsConsumer_confirm(t *testing.T) {
 }
 
 func TestClientStopWhenCannotStart(t *testing.T) {
-	client := NewClient(testURL)
+	client := NewClient(testURL, nil)
 
 	request := NewRequest().
 		WithTimeout(10 * time.Millisecond).
@@ -307,7 +307,7 @@ func TestClientStopWhenCannotStart(t *testing.T) {
 }
 
 func TestClientStopWhenNeverStarted(t *testing.T) {
-	client := NewClient(testURL)
+	client := NewClient(testURL, nil)
 
 	var stopped sync.WaitGroup
 
@@ -330,7 +330,7 @@ func TestClientStopWhenNeverStarted(t *testing.T) {
 func TestClientConfig(t *testing.T) {
 	cert := Certificates{}
 
-	certClient := NewClient(testURL).WithTLS(cert.TLSConfig())
+	certClient := NewClient(testURL, nil).WithTLS(cert.TLSConfig())
 	defer certClient.Stop()
 
 	assert.NotNil(t, certClient, "client with certificate exist")
@@ -340,7 +340,7 @@ func TestClientConfig(t *testing.T) {
 	cSettings := ConsumeSettings{}
 	publSettings := PublishSettings{}
 
-	acClient := NewClient(testURL).WithDialConfig(ac).
+	acClient := NewClient(testURL, nil).WithDialConfig(ac).
 		WithQueueDeclareSettings(qdSettings).
 		WithPublishSettings(publSettings).
 		WithConsumeSettings(cSettings).
@@ -517,13 +517,13 @@ func TestClientTimeoutWhileConnecting(t *testing.T) {
 	}{
 		{
 			name:        "Client not being able to connect causes real timeout error",
-			client:      NewClient("amqp://guest:guest@example:1234/").WithTimeout(10 * time.Millisecond),
+			client:      NewClient("amqp://guest:guest@example:1234/", nil).WithTimeout(10 * time.Millisecond),
 			request:     NewRequest().WithResponse(false),
 			wantTimeout: true,
 		},
 		{
 			name:        "Client with response not being able to connect causes real timeout error",
-			client:      NewClient("amqp://guest:guest@example:1234/").WithTimeout(10 * time.Millisecond),
+			client:      NewClient("amqp://guest:guest@example:1234/", nil).WithTimeout(10 * time.Millisecond),
 			request:     NewRequest().WithResponse(true),
 			wantTimeout: true,
 		},
@@ -548,7 +548,7 @@ func TestClientTimeoutWhileConnecting(t *testing.T) {
 }
 
 func TestGracefulShutdown(t *testing.T) {
-	s := NewServer(testURL)
+	s := NewServer(testURL, nil)
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "hello")
 	}))
@@ -556,7 +556,7 @@ func TestGracefulShutdown(t *testing.T) {
 	stop := startAndWait(s)
 	defer stop()
 
-	c := NewClient(testURL)
+	c := NewClient(testURL, nil)
 	defer c.Stop()
 
 	r, err := c.Send(NewRequest().WithRoutingKey("myqueue"))
@@ -575,7 +575,7 @@ func TestGracefulShutdown(t *testing.T) {
 }
 
 func TestClient_OnStarted(t *testing.T) {
-	s := NewServer(testURL)
+	s := NewServer(testURL, nil)
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
@@ -585,7 +585,7 @@ func TestClient_OnStarted(t *testing.T) {
 
 	errs := make(chan string, 4)
 
-	c := NewClient(testURL)
+	c := NewClient(testURL, nil)
 	defer c.Stop()
 
 	c.OnStarted(func(inC, outC *amqp.Connection, inCh, outCh *amqp.Channel) {

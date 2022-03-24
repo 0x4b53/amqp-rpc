@@ -12,20 +12,20 @@ import (
 )
 
 func Benchmark(b *testing.B) {
-	s := NewServer(testURL)
+	s := NewServer(testURL, nil)
 	queueName := uuid.New().String()
 	s.Bind(DirectBinding(queueName, func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {}))
 
 	go s.ListenAndServe()
 	time.Sleep(1 * time.Second)
 
-	confirmingClient := NewClient(testURL).
+	confirmingClient := NewClient(testURL, nil).
 		WithTimeout(3 * time.Minute).
 		WithErrorLogger(log.Printf)
 
 	defer confirmingClient.Stop()
 
-	fastClient := NewClient(testURL).
+	fastClient := NewClient(testURL, nil).
 		WithErrorLogger(log.Printf).
 		WithTimeout(3 * time.Minute).
 		WithPublishSettings(PublishSettings{

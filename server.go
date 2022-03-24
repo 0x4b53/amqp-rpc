@@ -83,13 +83,13 @@ type Server struct {
 }
 
 // NewServer will return a pointer to a new Server.
-func NewServer(url string) *Server {
+func NewServer(url string, dialConf *DialConf) *Server {
 	server := Server{
 		url:         url,
 		bindings:    []HandlerBinding{},
 		middlewares: []ServerMiddlewareFunc{},
 		dialconfig: amqp.Config{
-			Dial: DefaultDialer,
+			Dial: DefaultDialer(dialConf),
 		},
 		errorLog: log.Printf,                                  // use the standard logger default.
 		debugLog: func(format string, args ...interface{}) {}, // don't print anything default.

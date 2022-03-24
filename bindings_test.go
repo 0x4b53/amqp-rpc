@@ -40,8 +40,8 @@ func TestFanout(t *testing.T) {
 }
 
 func TestTopic(t *testing.T) {
-	s := NewServer(testURL)
-	c := NewClient(testURL)
+	s := NewServer(testURL, nil)
+	c := NewClient(testURL, nil)
 
 	defer c.Stop()
 
@@ -70,8 +70,8 @@ func TestTopic(t *testing.T) {
 }
 
 func TestHeaders(t *testing.T) {
-	s := NewServer(testURL)
-	c := NewClient(testURL)
+	s := NewServer(testURL, nil)
+	c := NewClient(testURL, nil)
 
 	defer c.Stop()
 
