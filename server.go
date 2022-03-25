@@ -89,10 +89,7 @@ func NewServer(url string) *Server {
 		bindings:    []HandlerBinding{},
 		middlewares: []ServerMiddlewareFunc{},
 		dialconfig: amqp.Config{
-			Dial: DefaultDialer(DialConf{
-				DialTimeout: 10 * time.Second,
-				Deadline:    10 * time.Second,
-			}),
+			Dial: amqp.DefaultDial(2 * time.Second),
 		},
 		errorLog: log.Printf,                                  // use the standard logger default.
 		debugLog: func(format string, args ...interface{}) {}, // don't print anything default.
@@ -105,10 +102,7 @@ func NewServer(url string) *Server {
 
 // WithDialTimeout sets the DialTimeout and handshake deadline to timeout.
 func (s *Server) WithDialTimeout(timeout time.Duration) *Server {
-	s.dialconfig.Dial = DefaultDialer(DialConf{
-		DialTimeout: timeout,
-		Deadline:    timeout,
-	})
+	s.dialconfig.Dial = amqp.DefaultDial(timeout)
 
 	return s
 }
