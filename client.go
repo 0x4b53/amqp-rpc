@@ -137,7 +137,7 @@ func NewClient(url string) *Client {
 	c := &Client{
 		url: url,
 		dialconfig: amqp.Config{
-			Dial: DefaultDialer,
+			Dial: amqp.DefaultDial(2 * time.Second),
 		},
 		requests: make(chan *Request),
 		requestsMap: RequestMap{
@@ -180,6 +180,15 @@ func (c *Client) OnStarted(f OnStartedFunc) {
 // WithDialConfig sets the dial config used for the client.
 func (c *Client) WithDialConfig(dc amqp.Config) *Client {
 	c.dialconfig = dc
+
+	return c
+}
+
+// WithDialTimeout sets the DialTimeout and handshake deadlines to timeout.
+func (c *Client) WithDialTimeout(timeout time.Duration) *Client {
+	c.dialconfig = amqp.Config{
+		Dial: amqp.DefaultDial(timeout),
+	}
 
 	return c
 }

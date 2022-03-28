@@ -47,7 +47,7 @@ type Server struct {
 	// is added.
 	responses chan processedRequest
 
-	// dialconfig is a amqp.Config which holds information about the connection
+	// Dialconfig is a amqp.Config which holds information about the connection
 	// such as authentication, TLS configuration, and a dialer which is a
 	// function used to obtain a connection. By default the dialconfig will
 	// include a dial function implemented in connection/dialer.go.
@@ -89,7 +89,7 @@ func NewServer(url string) *Server {
 		bindings:    []HandlerBinding{},
 		middlewares: []ServerMiddlewareFunc{},
 		dialconfig: amqp.Config{
-			Dial: DefaultDialer,
+			Dial: amqp.DefaultDial(2 * time.Second),
 		},
 		errorLog: log.Printf,                                  // use the standard logger default.
 		debugLog: func(format string, args ...interface{}) {}, // don't print anything default.
@@ -98,6 +98,13 @@ func NewServer(url string) *Server {
 	server.setDefaults()
 
 	return &server
+}
+
+// WithDialTimeout sets the DialTimeout and handshake deadline to timeout.
+func (s *Server) WithDialTimeout(timeout time.Duration) *Server {
+	s.dialconfig.Dial = amqp.DefaultDial(timeout)
+
+	return s
 }
 
 func (s *Server) setDefaults() {
