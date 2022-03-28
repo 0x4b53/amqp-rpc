@@ -132,7 +132,7 @@ func closeConnections(names ...string) {
 			continue
 		}
 
-		connectionURL := fmt.Sprintf("%s/connections/%s", serverAPITestURL, url.PathEscape(conn["name"].(string))) // nolint:forcetypeassert // Should never fail.
+		connectionURL := fmt.Sprintf("%s/connections/%s", serverAPITestURL, url.PathEscape(conn["name"].(string)))
 
 		req, err := http.NewRequest("DELETE", connectionURL, http.NoBody)
 		if err != nil {

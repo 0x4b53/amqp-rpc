@@ -25,7 +25,7 @@ func TestFanout(t *testing.T) {
 
 		stop := startAndWait(s)
 
-		defer stop() // nolint:gocritic //deferInLoop
+		defer stop()
 	}
 
 	c := NewClient(testURL)
