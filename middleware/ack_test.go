@@ -8,7 +8,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
 
-	amqprpc "github.com/0x4b53/amqp-rpc/v2"
+	amqprpc "github.com/0x4b53/amqp-rpc/v3"
 )
 
 func TestAckDelivery(t *testing.T) {
