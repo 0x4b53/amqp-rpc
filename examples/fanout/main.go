@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	amqprpc "github.com/0x4b53/amqp-rpc/v2"
+	amqprpc "github.com/0x4b53/amqp-rpc/v3"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
