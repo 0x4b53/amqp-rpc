@@ -186,9 +186,7 @@ func (c *Client) WithDialConfig(dc amqp.Config) *Client {
 
 // WithDialTimeout sets the DialTimeout and handshake deadlines to timeout.
 func (c *Client) WithDialTimeout(timeout time.Duration) *Client {
-	c.dialconfig = amqp.Config{
-		Dial: amqp.DefaultDial(timeout),
-	}
+	c.dialconfig.Dial = amqp.DefaultDial(timeout)
 
 	return c
 }
