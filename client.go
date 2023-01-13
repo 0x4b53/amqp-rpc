@@ -16,7 +16,7 @@ const (
 	// chanSendWaitTime is the maximum time we will wait when sending a
 	// response, confirm or error on the corresponding channels. This is so that
 	// we won't block forever if the listening goroutine has stopped listening.
-	chanSendWaitTime = 1 * time.Second
+	chanSendWaitTime = 10 * time.Second
 )
 
 var (
