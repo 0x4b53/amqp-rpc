@@ -11,11 +11,11 @@ jobs:
     name: golangci-lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: lint
-        uses: golangci/golangci-lint-action@v2
+      - uses: actions/setup-go@v3
         with:
-          version: v1.43
+          go-version: 1.19
+      - uses: actions/checkout@v3
+      - uses: golangci/golangci-lint-action@v3
 
   tests:
     name: tests
@@ -23,7 +23,7 @@ jobs:
     strategy:
       matrix:
         go:
-          - 1.17
+          - 1.19
         os:
           - ubuntu-latest
     runs-on: ${{ matrix.os }}
@@ -35,7 +35,7 @@ jobs:
           - 15672:15672
     steps:
       - name: Install Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
           go-version: ${{ matrix.go }}
 
@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Setup cache
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -67,13 +67,14 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Install Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
           go-version: 1.17
 
-      - uses: paambaati/codeclimate-action@v2.7.5
+      - name: Code Climate Coverage Action
+        uses: paambaati/codeclimate-action@v3.2.0
         env:
-          CC_TEST_REPORTER_ID: 7d839e0bef19ceb83a38550bc5e651070cd1c15279069a90bdbaaad727d7c0cd
+          CC_TEST_REPORTER_ID: ${{secrets.CC_TEST_REPORTER_ID}}
         with:
           # Hack to resolve package:
           # https://github.com/paambaati/codeclimate-action/issues/109#issuecomment-751311299
