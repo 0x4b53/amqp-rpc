@@ -146,8 +146,10 @@ linters:
   enable-all: true
   disable:
     - cyclop
+    - deadcode
     - dupl
     - exhaustivestruct
+    - exhaustruct
     - forbidigo
     - funlen
     - gci
@@ -156,16 +158,21 @@ linters:
     - godox
     - golint
     - gomnd
+    - ifshort
     - interfacer
     - lll
     - maligned
     - nakedret
     - nlreturn
     - noctx
+    - nonamedreturns
+    - nosnakecase
     - paralleltest
     - prealloc
     - scopelint
+    - structcheck
     - testpackage
+    - varcheck
     - varnamelen
     - wrapcheck
   disable-all: false

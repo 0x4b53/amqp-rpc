@@ -19,13 +19,18 @@ func TestFanout(t *testing.T) {
 		atomic.AddInt64(&timesCalled, 1)
 	}
 
+	var stopFuncs []func()
+	defer func() {
+		for _, f := range stopFuncs {
+			f()
+		}
+	}()
+
 	for range make([]struct{}, 3) {
 		s := NewServer(testURL)
 		s.Bind(FanoutBinding("fanout-exchange", fanoutHandler))
 
-		stop := startAndWait(s)
-
-		defer stop()
+		stopFuncs = append(stopFuncs, startAndWait(s))
 	}
 
 	c := NewClient(testURL)

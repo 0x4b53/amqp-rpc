@@ -32,7 +32,6 @@ It can also be used with for example a Logrus logger:
 	client := NewClient(url)
 	client.WithErrorLogger(logger.Errorf)
 	client.WithDebugLogger(logger.Debugf)
-
 */
 type LogFunc func(format string, args ...interface{})
 

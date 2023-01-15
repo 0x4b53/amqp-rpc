@@ -712,7 +712,7 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 
 // Send will send a Request by using a amqp.Publishing.
 func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
-	// nolint:gocritic // We don't want to overwrite any slice so it's
+	//nolint:gocritic // We don't want to overwrite any slice so it's
 	// intentional to store append result in new slice.
 	middlewares := append(c.middlewares, r.middlewares...)
 

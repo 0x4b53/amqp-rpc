@@ -75,7 +75,7 @@ func startAndWait(s *Server) func() {
 func deleteQueue(name string) {
 	queueURL := fmt.Sprintf("%s/queues/%s/%s", serverAPITestURL, url.PathEscape("/"), url.PathEscape(name))
 
-	req, err := http.NewRequest("DELETE", queueURL, http.NoBody)
+	req, err := http.NewRequest(http.MethodDelete, queueURL, http.NoBody)
 	if err != nil {
 		panic(err)
 	}
@@ -132,9 +132,14 @@ func closeConnections(names ...string) {
 			continue
 		}
 
-		connectionURL := fmt.Sprintf("%s/connections/%s", serverAPITestURL, url.PathEscape(conn["name"].(string)))
+		connName, ok := conn["name"].(string)
+		if !ok {
+			panic("name is not a string")
+		}
 
-		req, err := http.NewRequest("DELETE", connectionURL, http.NoBody)
+		connectionURL := fmt.Sprintf("%s/connections/%s", serverAPITestURL, url.PathEscape(connName))
+
+		req, err := http.NewRequest(http.MethodDelete, connectionURL, http.NoBody)
 		if err != nil {
 			panic(err)
 		}
