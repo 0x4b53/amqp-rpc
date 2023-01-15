@@ -10,7 +10,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// nolint: gochecknoglobals
+// nolint:gochecknoglobals
 var timesCalled = 0
 
 func main() {

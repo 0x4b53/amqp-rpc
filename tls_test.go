@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"io/ioutil"
 	"math/big"
 	"os"
 	"testing"
@@ -61,7 +60,7 @@ func createPrivKey(priv *rsa.PrivateKey) string {
 }
 
 func createCertificate(priv *rsa.PrivateKey, pub rsa.PublicKey) string {
-	f, _ := ioutil.TempFile(".", "pub*.pem")
+	f, _ := os.CreateTemp(".", "pub*.pem")
 	defer f.Close()
 
 	cert := &x509.Certificate{
