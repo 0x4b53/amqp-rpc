@@ -76,11 +76,13 @@ linters-settings:
     # minimal occurrences count to trigger, 3 by default
     min-occurrences: 3
   depguard:
-    list-type: blacklist
-    include-go-root: false
-    packages:
-      - github.com/davecgh/go-spew/spew
-      - github.com/c2fo/testify
+    rules:
+      main:
+        deny:
+          - pkg: "github.com/davecgh/go-spew/spew"
+            desc: "only used for debugging"
+          - pkg: "github.com/c2fo/testify"
+            desc: "wrong testify package"
   misspell:
     # Correct spellings using locale preferences for US or UK.
     # Default is to use a neutral variety of English.

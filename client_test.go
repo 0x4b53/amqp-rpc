@@ -44,7 +44,7 @@ func TestClientNoConfirmMode(t *testing.T) {
 	assert.Equal(t, []byte("Got message: client testing"), response.Body, "correct body in response")
 }
 
-func TestClientDataRace(t *testing.T) {
+func TestClientDataRace(_ *testing.T) {
 	_, client, start, stop := initTest()
 	defer stop()
 

@@ -462,7 +462,8 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 			response.replyTo, response.publishing.CorrelationId,
 		)
 
-		err := outCh.Publish(
+		err := outCh.PublishWithContext(
+			context.Background(),
 			"", // exchange
 			response.replyTo,
 			response.mandatory,
