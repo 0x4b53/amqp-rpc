@@ -28,19 +28,19 @@ type MockAcknowledger struct {
 }
 
 // Ack increases Acks.
-func (ma *MockAcknowledger) Ack(tag uint64, multiple bool) error {
+func (ma *MockAcknowledger) Ack(_ uint64, _ bool) error {
 	ma.Acks++
 	return nil
 }
 
 // Nack increases Nacks.
-func (ma *MockAcknowledger) Nack(tag uint64, multiple, requeue bool) error {
+func (ma *MockAcknowledger) Nack(_ uint64, _, _ bool) error {
 	ma.Nacks++
 	return nil
 }
 
 // Reject increases Rejects.
-func (ma *MockAcknowledger) Reject(tag uint64, requeue bool) error {
+func (ma *MockAcknowledger) Reject(_ uint64, _ bool) error {
 	ma.Rejects++
 	return nil
 }

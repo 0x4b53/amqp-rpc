@@ -1,6 +1,7 @@
 package amqprpc
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -455,7 +456,8 @@ func (c *Client) runPublisher(ouputChan *amqp.Channel) {
 			// of this request once they come in.
 			c.requestsMap.Set(request)
 
-			err := ouputChan.Publish(
+			err := ouputChan.PublishWithContext(
+				context.Background(),
 				request.Exchange,
 				request.RoutingKey,
 				c.publishSettings.Mandatory,

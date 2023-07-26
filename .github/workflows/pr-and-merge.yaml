@@ -11,22 +11,21 @@ jobs:
     name: golangci-lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-go@v3
+      - name: Install Go
+        uses: actions/setup-go@v4
         with:
-          go-version: 1.19
-      - uses: actions/checkout@v3
-      - uses: golangci/golangci-lint-action@v3
+          go-version: "1.20"
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v3
 
   tests:
     name: tests
     needs: golangci-lint # run after golangci-lint action to not produce duplicated errors
-    strategy:
-      matrix:
-        go:
-          - 1.19
-        os:
-          - ubuntu-latest
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     services:
       rabbitmq:
         image: rabbitmq:3-management
@@ -35,19 +34,12 @@ jobs:
           - 15672:15672
     steps:
       - name: Install Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
-          go-version: ${{ matrix.go }}
+          go-version: "1.20"
 
       - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Setup cache
-        uses: actions/cache@v3
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: ${{ runner.os }}-go-
+        uses: actions/checkout@v3
 
       - name: Test code
         run: go test -race -v ./...
@@ -63,16 +55,16 @@ jobs:
           - 15672:15672
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
       - name: Install Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
-          go-version: 1.17
+          go-version: "1.20"
+
+      - name: Checkout code
+        uses: actions/checkout@v3
 
       - name: Code Climate Coverage Action
-        uses: paambaati/codeclimate-action@v3.2.0
+        uses: paambaati/codeclimate-action@v5.0.0
         env:
           CC_TEST_REPORTER_ID: ${{secrets.CC_TEST_REPORTER_ID}}
         with:
