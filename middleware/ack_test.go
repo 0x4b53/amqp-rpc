@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"log"
 	"testing"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -31,7 +30,7 @@ func TestAckDelivery(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			acknowledger := &amqprpc.MockAcknowledger{}
 
-			handler := AckDelivery(log.Printf)(tt.handler)
+			handler := AckDelivery(func(_ error, _ string) {})(tt.handler)
 
 			rw := amqprpc.NewResponseWriter(&amqp.Publishing{})
 			d := amqp.Delivery{Acknowledger: acknowledger}
