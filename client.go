@@ -395,7 +395,8 @@ func (c *Client) runOnce() error {
 
 	go c.runPublisher(outputCh)
 
-	err = monitorAndWait(
+	_, err = monitorAndWait(
+		make(chan struct{}),
 		c.stopChan,
 		inputConn.NotifyClose(make(chan *amqp.Error)),
 		outputConn.NotifyClose(make(chan *amqp.Error)),

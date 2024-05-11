@@ -3,6 +3,7 @@ package amqprpc
 import (
 	"context"
 	"fmt"
+	"log"
 	"testing"
 	"time"
 
@@ -144,6 +145,48 @@ func TestServerReconnect(t *testing.T) {
 	assert.Equal(t, []byte("Hello"), reply.Body)
 
 	closeConnections("server-reconnect-test")
+
+	request = NewRequest().WithRoutingKey("myqueue")
+	reply, err = c.Send(request)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("Hello"), reply.Body)
+}
+
+func TestManualRestart(t *testing.T) {
+	hasStarted := make(chan struct{})
+	restartChan := make(chan struct{})
+
+	s := NewServer(testURL).
+		WithRestartChan(restartChan).
+		WithDebugLogger(log.Printf).
+		WithAutoAck(false)
+
+	s.OnStarted(func(_, _ *amqp.Connection, _, _ *amqp.Channel) {
+		hasStarted <- struct{}{}
+	})
+
+	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		_ = d.Ack(false)
+		fmt.Fprintf(rw, "Hello")
+	}))
+
+	// Wait for the initial startup signal.
+	go func() { <-hasStarted }()
+
+	stop := startAndWait(s)
+	defer stop()
+
+	c := NewClient(testURL)
+	defer c.Stop()
+
+	request := NewRequest().WithRoutingKey("myqueue")
+	reply, err := c.Send(request)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("Hello"), reply.Body)
+
+	// Retart the server and don't send the new message until we're restarted.
+	restartChan <- struct{}{}
+	<-hasStarted
 
 	request = NewRequest().WithRoutingKey("myqueue")
 	reply, err = c.Send(request)
