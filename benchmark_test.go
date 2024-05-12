@@ -14,7 +14,7 @@ import (
 func Benchmark(b *testing.B) {
 	s := NewServer(testURL)
 	queueName := uuid.New().String()
-	s.Bind(DirectBinding(queueName, func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {}))
+	s.Bind(DirectBinding(queueName, func(_ context.Context, _ *ResponseWriter, _ amqp.Delivery) {}))
 
 	go s.ListenAndServe()
 	time.Sleep(1 * time.Second)
@@ -108,7 +108,7 @@ func Benchmark(b *testing.B) {
 
 					if bm.returned {
 						if err == nil {
-							b.Fatal(err.Error())
+							b.Fatal("Expected err to be non nil")
 						}
 					} else {
 						if err != nil {

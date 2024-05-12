@@ -7,6 +7,8 @@ output:
 linters-settings:
   govet:
     enable-all: true
+    disable:
+      - fieldalignment
   depguard:
     rules:
       main:
@@ -58,6 +60,8 @@ linters:
     - perfsprint
     - prealloc
     - testpackage
+    - varnamelen
+    - wrapcheck
   disable-all: false
   fast: false
 

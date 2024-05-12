@@ -32,7 +32,7 @@ func TestClientMiddlewareChain(t *testing.T) {
 	)
 
 	mw := ClientMiddlewareChain(
-		func(rx *Request) (*amqp.Delivery, error) {
+		func(_ *Request) (*amqp.Delivery, error) {
 			fmt.Fprintf(&b, "X")
 
 			dx := amqp.Delivery{}

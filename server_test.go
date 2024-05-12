@@ -38,7 +38,7 @@ func TestNoAutomaticAck(t *testing.T) {
 	calls := make(chan struct{}, 2)
 
 	server.Bind(
-		DirectBinding("no-auto-ack", func(ctc context.Context, responseWriter *ResponseWriter, d amqp.Delivery) {
+		DirectBinding("no-auto-ack", func(_ context.Context, _ *ResponseWriter, _ amqp.Delivery) {
 			calls <- struct{}{}
 		}),
 	)
@@ -92,11 +92,11 @@ func TestMiddleware(t *testing.T) {
 
 	server.AddMiddleware(mw)
 
-	server.Bind(DirectBinding("allowed", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	server.Bind(DirectBinding("allowed", func(_ context.Context, rw *ResponseWriter, _ amqp.Delivery) {
 		fmt.Fprint(rw, "this is allowed")
 	}))
 
-	server.Bind(DirectBinding("denied", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	server.Bind(DirectBinding("denied", func(_ context.Context, rw *ResponseWriter, _ amqp.Delivery) {
 		fmt.Fprint(rw, "this is not allowed")
 	}))
 
@@ -126,8 +126,9 @@ func TestServerReconnect(t *testing.T) {
 		}).
 		WithAutoAck(false)
 
-	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	s.Bind(DirectBinding("myqueue", func(_ context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		_ = d.Ack(false)
+
 		fmt.Fprintf(rw, "Hello")
 	}))
 
@@ -158,12 +159,15 @@ func TestServerOnStarted(t *testing.T) {
 		if inC == nil {
 			errs <- "inC was nil"
 		}
+
 		if outC == nil {
 			errs <- "outC was nil"
 		}
+
 		if inCh == nil {
 			errs <- "inCh was nil"
 		}
+
 		if outCh == nil {
 			errs <- "outCh was nil"
 		}
@@ -242,7 +246,7 @@ func TestContextDoneWhenServerStopped(t *testing.T) {
 
 	isShuttingDown := make(chan bool, 1)
 
-	server.Bind(DirectBinding("context.test", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	server.Bind(DirectBinding("context.test", func(ctx context.Context, _ *ResponseWriter, _ amqp.Delivery) {
 		shutdownCh, ok := ShutdownChanFromContext(ctx)
 		require.True(t, ok)
 

@@ -14,7 +14,7 @@ func TestRequest(t *testing.T) {
 	url := "amqp://guest:guest@localhost:5672/"
 
 	s := NewServer(url)
-	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	s.Bind(DirectBinding("myqueue", func(_ context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
 
@@ -118,7 +118,7 @@ func TestRequestContext(t *testing.T) {
 	r := NewRequest().WithContext(ctx)
 
 	c := NewClient("").AddMiddleware(myMiddleFunc)
-	c.Sender = func(r *Request) (*amqp.Delivery, error) {
+	c.Sender = func(_ *Request) (*amqp.Delivery, error) {
 		// Usually i would send something...
 		return &amqp.Delivery{}, nil
 	}

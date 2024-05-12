@@ -13,8 +13,8 @@ import (
 
 func TestAckDelivery(t *testing.T) {
 	tests := []struct {
-		name    string
 		handler amqprpc.HandlerFunc
+		name    string
 	}{
 		{
 			name:    "handler doesn't ack",

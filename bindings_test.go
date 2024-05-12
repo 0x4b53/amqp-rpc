@@ -15,7 +15,7 @@ import (
 func TestFanout(t *testing.T) {
 	var timesCalled int64
 
-	fanoutHandler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	fanoutHandler := func(_ context.Context, _ *ResponseWriter, _ amqp.Delivery) {
 		atomic.AddInt64(&timesCalled, 1)
 	}
 
@@ -52,7 +52,7 @@ func TestTopic(t *testing.T) {
 
 	wasCalled := make(chan struct{})
 
-	s.Bind(TopicBinding("", "foo.#", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	s.Bind(TopicBinding("", "foo.#", func(_ context.Context, _ *ResponseWriter, _ amqp.Delivery) {
 		wasCalled <- struct{}{}
 	}))
 
@@ -80,7 +80,7 @@ func TestHeaders(t *testing.T) {
 
 	defer c.Stop()
 
-	handler := func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	handler := func(_ context.Context, rw *ResponseWriter, _ amqp.Delivery) {
 		fmt.Fprintf(rw, "Hello, world")
 	}
 
