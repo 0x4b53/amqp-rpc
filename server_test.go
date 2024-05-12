@@ -23,7 +23,7 @@ func TestSendWithReply(t *testing.T) {
 			WithBody("this is a message"),
 	)
 
-	assert.Nil(t, err, "client exist")
+	require.NoError(t, err, "client exist")
 	assert.Equal(t, []byte("Got message: this is a message"), reply.Body, "got reply")
 }
 
@@ -106,14 +106,14 @@ func TestMiddleware(t *testing.T) {
 		NewRequest().WithRoutingKey("allowed"),
 	)
 
-	assert.Nil(t, err, "no error")
+	require.NoError(t, err, "no error")
 	assert.Equal(t, []byte("this is allowed"), reply.Body, "allowed middleware callable")
 
 	reply, err = client.Send(
 		NewRequest().WithRoutingKey("denied"),
 	)
 
-	assert.Nil(t, err, "no error")
+	require.NoError(t, err, "no error")
 	assert.Equal(t, []byte("routing key 'denied' is not allowed"), reply.Body, "denied middleware not callable")
 }
 
@@ -212,7 +212,7 @@ func TestServerConfig(t *testing.T) {
 	s := NewServer(testURL)
 	assert.NotNil(t, s)
 	assert.True(t, s.exchangeDeclareSettings.Durable)
-	assert.Equal(t, s.consumeSettings.QoSPrefetchCount, 10)
+	assert.Equal(t, 10, s.consumeSettings.QoSPrefetchCount)
 
 	qdSettings := QueueDeclareSettings{
 		DeleteWhenUnused: true,

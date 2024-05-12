@@ -8,7 +8,6 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestServerLogging(t *testing.T) {
@@ -24,7 +23,7 @@ func TestServerLogging(t *testing.T) {
 		stop := startAndWait(s)
 		stop()
 
-		require.NoError(t, writer.Close())
+		assert.NoError(t, writer.Close())
 	}()
 
 	buf, err := io.ReadAll(reader)

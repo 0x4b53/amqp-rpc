@@ -382,7 +382,6 @@ func (c *Client) runOnce() error {
 		err = outputCh.Confirm(
 			false, // no-wait.
 		)
-
 		if err != nil {
 			return err
 		}
@@ -402,7 +401,6 @@ func (c *Client) runOnce() error {
 		inputCh.NotifyClose(make(chan *amqp.Error)),
 		outputCh.NotifyClose(make(chan *amqp.Error)),
 	)
-
 	if err != nil {
 		return err
 	}

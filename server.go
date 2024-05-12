@@ -543,7 +543,6 @@ func declareAndBind(
 		false, // no-wait.
 		exchangeDeclareSettings.Args,
 	)
-
 	if err != nil {
 		return "", err
 	}
@@ -555,7 +554,6 @@ func declareAndBind(
 		false, // no-wait.
 		binding.BindHeaders,
 	)
-
 	if err != nil {
 		return "", err
 	}

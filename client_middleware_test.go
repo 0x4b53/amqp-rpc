@@ -8,6 +8,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func traceClientMiddleware(id int, w io.Writer) ClientMiddlewareFunc {
@@ -26,9 +27,8 @@ func traceClientMiddleware(id int, w io.Writer) ClientMiddlewareFunc {
 
 func TestClientMiddlewareChain(t *testing.T) {
 	var (
-		assert = assert.New(t)
-		req    = NewRequest()
-		b      = bytes.Buffer{}
+		req = NewRequest()
+		b   = bytes.Buffer{}
 	)
 
 	mw := ClientMiddlewareChain(
@@ -45,15 +45,15 @@ func TestClientMiddlewareChain(t *testing.T) {
 
 	res, err := mw(req)
 
-	assert.Nil(err, "no errors chaining middlewares")
-	assert.NotNil(res, "result is not nil after passing through middlewares")
-	assert.Equal([]byte("12X21"), b.Bytes(), "middlewares executed in correct order")
+	require.NoError(t, err, "no errors chaining middlewares")
+	assert.NotNil(t, res, "result is not nil after passing through middlewares")
+	assert.Equal(t, []byte("12X21"), b.Bytes(), "middlewares executed in correct order")
 }
 
 func TestClientClientAddMiddlewares(t *testing.T) {
 	c := NewClient("")
 
-	assert.Equal(t, 0, len(c.middlewares), "zero middlewares at start")
+	assert.Empty(t, c.middlewares, "zero middlewares at start")
 
 	c.AddMiddleware(
 		func(n SendFunc) SendFunc {
@@ -63,5 +63,5 @@ func TestClientClientAddMiddlewares(t *testing.T) {
 		},
 	)
 
-	assert.Equal(t, 1, len(c.middlewares), "adding middlewares working")
+	assert.Len(t, c.middlewares, 1, "adding middlewares working")
 }
