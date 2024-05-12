@@ -21,7 +21,7 @@ func traceServerMiddleware(id int) ServerMiddlewareFunc {
 
 func TestServerMiddlewareChain(t *testing.T) {
 	handler := ServerMiddlewareChain(
-		func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		func(_ context.Context, rw *ResponseWriter, _ amqp.Delivery) {
 			fmt.Fprint(rw, "X")
 		},
 		traceServerMiddleware(1),
@@ -31,7 +31,7 @@ func TestServerMiddlewareChain(t *testing.T) {
 	)
 
 	unevenHandler := ServerMiddlewareChain(
-		func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		func(_ context.Context, rw *ResponseWriter, _ amqp.Delivery) {
 			fmt.Fprint(rw, "Y")
 		},
 		traceServerMiddleware(1),

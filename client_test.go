@@ -447,7 +447,7 @@ func TestClientTimeout(t *testing.T) {
 	server, client, start, stop := initTest()
 	defer stop()
 
-	server.Bind(DirectBinding("timeout-queue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	server.Bind(DirectBinding("timeout-queue", func(_ context.Context, _ *ResponseWriter, d amqp.Delivery) {
 		expiration, _ := strconv.Atoi(d.Expiration)
 
 		timeout, ok := d.Headers["timeout"].(bool)
@@ -557,7 +557,7 @@ func TestClientTimeoutWhileConnecting(t *testing.T) {
 
 func TestGracefulShutdown(t *testing.T) {
 	s := NewServer(testURL)
-	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	s.Bind(DirectBinding("myqueue", func(_ context.Context, rw *ResponseWriter, _ amqp.Delivery) {
 		fmt.Fprintf(rw, "hello")
 	}))
 
@@ -584,7 +584,7 @@ func TestGracefulShutdown(t *testing.T) {
 
 func TestClient_OnStarted(t *testing.T) {
 	s := NewServer(testURL)
-	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	s.Bind(DirectBinding("myqueue", func(_ context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
 
@@ -600,12 +600,15 @@ func TestClient_OnStarted(t *testing.T) {
 		if inC == nil {
 			errs <- "inC was nil"
 		}
+
 		if outC == nil {
 			errs <- "outC was nil"
 		}
+
 		if inCh == nil {
 			errs <- "inCh was nil"
 		}
+
 		if outCh == nil {
 			errs <- "outCh was nil"
 		}

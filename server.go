@@ -91,7 +91,8 @@ func NewServer(url string) *Server {
 		dialconfig: amqp.Config{
 			Dial: amqp.DefaultDial(2 * time.Second),
 		},
-		errorLog: log.Printf,                                  // use the standard logger default.
+		errorLog: log.Printf, // use the standard logger default.
+		//nolint:revive // Keep variables for clarity
 		debugLog: func(format string, args ...interface{}) {}, // don't print anything default.
 	}
 

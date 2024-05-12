@@ -167,7 +167,7 @@ func testServer() *Server {
 			},
 		)
 
-	server.Bind(DirectBinding(defaultTestQueue, func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	server.Bind(DirectBinding(defaultTestQueue, func(_ context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
 

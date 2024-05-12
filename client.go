@@ -149,8 +149,9 @@ func NewClient(url string) *Client {
 		middlewares:      []ClientMiddlewareFunc{},
 		timeout:          time.Second * 10,
 		maxRetries:       10,
-		errorLog:         log.Printf,                                  // use the standard logger default.
-		debugLog:         func(format string, args ...interface{}) {}, // don't print anything default.
+		errorLog:         log.Printf, // use the standard logger default.
+		//nolint:revive // Keep variables for clarity
+		debugLog: func(format string, args ...interface{}) {}, // don't print anything default.
 	}
 
 	c.Sender = c.send
