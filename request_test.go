@@ -11,10 +11,7 @@ import (
 )
 
 func TestRequest(t *testing.T) {
-	var (
-		assert = assert.New(t)
-		url    = "amqp://guest:guest@localhost:5672/"
-	)
+	url := "amqp://guest:guest@localhost:5672/"
 
 	s := NewServer(url)
 	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
@@ -36,8 +33,8 @@ func TestRequest(t *testing.T) {
 		WithBody("hello request")
 
 	response, err := client.Send(request)
-	assert.Nil(err, "no errors sending request")
-	assert.Equal([]byte("Got message: hello request"), response.Body, "correct body returned")
+	require.NoError(t, err, "no errors sending request")
+	assert.Equal(t, []byte("Got message: hello request"), response.Body, "correct body returned")
 
 	// Test with exchange, headers, content type, correlation ID and raw body.
 	request = NewRequest().
@@ -50,8 +47,8 @@ func TestRequest(t *testing.T) {
 		WithBody(`{"foo":"bar"}`)
 
 	response, err = client.Send(request)
-	assert.Nil(err, "no errors sending request")
-	assert.Nil(response, "no body returned when not waiting for replies")
+	require.NoError(t, err, "no errors sending request")
+	assert.Nil(t, response, "no body returned when not waiting for replies")
 
 	request = NewRequest().
 		WithRoutingKey("myqueue").
@@ -59,16 +56,16 @@ func TestRequest(t *testing.T) {
 		AddMiddleware(myMiddle)
 
 	response, err = client.Send(request)
-	assert.Nil(err, "no errors sending request")
-	assert.NotNil(response.Body, "body exist")
-	assert.Equal([]byte("Got message: middleware message"), response.Body, "correct body returned")
+	require.NoError(t, err, "no errors sending request")
+	assert.NotNil(t, response.Body, "body exist")
+	assert.Equal(t, []byte("Got message: middleware message"), response.Body, "correct body returned")
 }
 
 func TestRequestWriting(t *testing.T) {
 	r := NewRequest().WithRoutingKey("foo")
 
-	assert.Equal(t, 0, len(r.Publishing.Body), "no body at start")
-	assert.Equal(t, 0, len(r.Publishing.Headers), "no headers at start")
+	assert.Empty(t, r.Publishing.Body, "no body at start")
+	assert.Empty(t, r.Publishing.Headers, "no headers at start")
 
 	t.Run("body writing", func(tt *testing.T) {
 		fmt.Fprintf(r, "my body is foo")
@@ -128,8 +125,8 @@ func TestRequestContext(t *testing.T) {
 
 	_, err := c.Send(r)
 
-	assert.Nil(t, err)
-	assert.Equal(t, true, changeThroughMiddleware, "requesst changed through middleware")
+	require.NoError(t, err)
+	assert.True(t, changeThroughMiddleware, "requesst changed through middleware")
 }
 
 func myMiddle(next SendFunc) SendFunc {

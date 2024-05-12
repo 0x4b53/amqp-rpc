@@ -37,7 +37,7 @@ func TestFanout(t *testing.T) {
 	defer c.Stop()
 
 	_, err := c.Send(NewRequest().WithExchange("fanout-exchange").WithResponse(false))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Eventually(t, func() bool {
 		return atomic.LoadInt64(&timesCalled) == int64(3)
@@ -97,6 +97,6 @@ func TestHeaders(t *testing.T) {
 	// Ensure 'somewhere.*' matches 'somewhere.there'.
 	response, err := c.Send(NewRequest().WithExchange("amq.match").WithHeaders(amqp.Table{"foo": "bar"}))
 
-	assert.Nil(t, err, "no errors occurred")
+	require.NoError(t, err, "no errors occurred")
 	assert.Equal(t, []byte("Hello, world"), response.Body, "correct request body")
 }

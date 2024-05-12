@@ -2,7 +2,6 @@ package amqprpc
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"runtime"
@@ -97,7 +96,7 @@ func TestClientReturn(t *testing.T) {
 
 			_, err := client.Send(request)
 			require.Error(t, err)
-			assert.True(t, errors.Is(err, ErrRequestReturned))
+			require.ErrorIs(t, err, ErrRequestReturned)
 			assert.Contains(t, err.Error(), "NO_ROUTE")
 		})
 	}
@@ -286,7 +285,7 @@ func TestClientStopWhenCannotStart(t *testing.T) {
 		WithResponse(false)
 
 	_, err := client.Send(request)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	var stopped sync.WaitGroup
 
@@ -371,7 +370,7 @@ func TestClientReconnect(t *testing.T) {
 		NewRequest().WithRoutingKey(defaultTestQueue),
 	)
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestClientRetry(t *testing.T) {
@@ -439,7 +438,7 @@ func TestClientRetry(t *testing.T) {
 
 			_, err = client.Send(req)
 			require.Error(t, err)
-			assert.False(t, errors.Is(err, ErrRequestTimeout))
+			assert.NotErrorIs(t, err, ErrRequestTimeout)
 		})
 	}
 }
@@ -506,12 +505,12 @@ func TestClientTimeout(t *testing.T) {
 
 			response, err := client.Send(tc.request)
 			if !tc.wantTimeout {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				return
 			}
 
-			assert.Error(t, err)
-			assert.True(t, errors.Is(err, ErrRequestTimeout))
+			require.Error(t, err)
+			require.ErrorIs(t, err, ErrRequestTimeout)
 			assert.Nil(t, response)
 		})
 	}
@@ -545,12 +544,12 @@ func TestClientTimeoutWhileConnecting(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			response, err := tc.client.Send(tc.request)
 			if !tc.wantTimeout {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				return
 			}
 
-			assert.Error(t, err)
-			assert.True(t, errors.Is(err, ErrRequestTimeout))
+			require.Error(t, err)
+			require.ErrorIs(t, err, ErrRequestTimeout)
 			assert.Nil(t, response)
 		})
 	}
@@ -570,7 +569,7 @@ func TestGracefulShutdown(t *testing.T) {
 
 	r, err := c.Send(NewRequest().WithRoutingKey("myqueue"))
 
-	assert.Nil(t, err, "no error before shutting down")
+	require.NoError(t, err, "no error before shutting down")
 	assert.Equal(t, "hello", string(r.Body), "correct body")
 
 	c.Stop()
@@ -579,7 +578,7 @@ func TestGracefulShutdown(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	r, err = c.Send(NewRequest().WithRoutingKey("myqueue"))
-	assert.Nil(t, err, "no error when sending after stop")
+	require.NoError(t, err, "no error when sending after stop")
 	assert.Equal(t, "hello", string(r.Body), "correct body after sending after stop")
 }
 
@@ -621,7 +620,7 @@ func TestClient_OnStarted(t *testing.T) {
 		WithResponse(false)
 
 	_, err := c.Send(request)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	select {
 	case e, ok := <-errs:

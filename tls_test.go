@@ -31,14 +31,14 @@ func TestTLS(t *testing.T) {
 
 	require.NotNil(t, cfg, "config is not nil")
 	assert.NotNil(t, cfg.RootCAs, "root CAs exist")
-	assert.Equal(t, 1, len(cfg.Certificates), "one certificate parsed")
+	assert.Len(t, cfg.Certificates, 1, "one certificate parsed")
 
 	c = Certificates{}
 
 	cfg = c.TLSConfig()
 
 	assert.NotNil(t, cfg, "successfully generate TLSConfig")
-	assert.Equal(t, 0, len(cfg.Certificates), "no certificates for empty config")
+	assert.Empty(t, cfg.Certificates, "no certificates for empty config")
 }
 
 func createPrivKey(priv *rsa.PrivateKey) string {
