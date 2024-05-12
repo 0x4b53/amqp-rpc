@@ -9,8 +9,15 @@ import (
 	amqprpc "github.com/0x4b53/amqp-rpc/v3"
 )
 
+// OnErrFunc is the function that will be called when the middleware get an
+// error from `Ack`. The error and the correlation ID for the delivery will be
+// passed.
 type OnErrFunc func(err error, correlationID string)
 
+// AckLogError is a built-in function that will log the error if any is returned
+// from `Ack`.
+//
+//	middleware := AckDelivery(AckLogError)
 func AckLogError(err error, correlationID string) {
 	log.Printf("could not ack delivery (%s): %v\n", correlationID, err)
 }
