@@ -303,7 +303,7 @@ func (s *Server) listenAndServe() (bool, error) {
 	// -- https://godoc.org/github.com/rabbitmq/amqp091-go#Channel.Consume
 	inputConn, outputConn, err := createConnections(s.url, s.dialconfig)
 	if err != nil {
-		return true, err
+		return false, err
 	}
 
 	defer inputConn.Close()
@@ -311,7 +311,7 @@ func (s *Server) listenAndServe() (bool, error) {
 
 	inputCh, outputCh, err := createChannels(inputConn, outputConn)
 	if err != nil {
-		return true, err
+		return false, err
 	}
 
 	defer inputCh.Close()
@@ -323,7 +323,7 @@ func (s *Server) listenAndServe() (bool, error) {
 		false,
 	)
 	if err != nil {
-		return true, err
+		return false, err
 	}
 
 	// Notify everyone that the server has started.
@@ -338,7 +338,7 @@ func (s *Server) listenAndServe() (bool, error) {
 	// cancel our consumers.
 	consumerTags, err := s.startConsumers(inputCh, &consumersWg)
 	if err != nil {
-		return true, err
+		return false, err
 	}
 
 	// This WaitGroup will reach 0 when the responder() has finished sending
