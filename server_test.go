@@ -165,8 +165,9 @@ func TestManualRestart(t *testing.T) {
 		hasStarted <- struct{}{}
 	})
 
-	s.Bind(DirectBinding("myqueue", func(ctx context.Context, rw *ResponseWriter, d amqp.Delivery) {
+	s.Bind(DirectBinding("myqueue", func(_ context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		_ = d.Ack(false)
+
 		fmt.Fprintf(rw, "Hello")
 	}))
 
@@ -184,8 +185,7 @@ func TestManualRestart(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []byte("Hello"), reply.Body)
 
-	// Retart the server and don't send the new message until we're restarted.
-	restartChan <- struct{}{}
+	s.Restart()
 	<-hasStarted
 
 	request = NewRequest().WithRoutingKey("myqueue")

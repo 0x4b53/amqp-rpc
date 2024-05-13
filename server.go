@@ -98,6 +98,9 @@ func NewServer(url string) *Server {
 		errorLog: log.Printf, // use the standard logger default.
 		//nolint:revive // Keep variables for clarity
 		debugLog: func(format string, args ...interface{}) {}, // don't print anything default.
+		// We ensure to always create a channel so we can call `Restart` without
+		// blocking.
+		restartChan: make(chan struct{}),
 	}
 
 	server.setDefaults()
@@ -278,6 +281,7 @@ func (s *Server) ListenAndServe() {
 			s.responses = make(chan processedRequest)
 
 			s.debugLog("server: listener restarting")
+
 			continue
 		}
 
@@ -524,6 +528,19 @@ func (s *Server) Stop() {
 	}
 
 	close(s.stopChan)
+}
+
+// Restart will gracefully disconnect from AMQP exactly like `Stop` but instead
+// of returning from `ListenAndServe` it will set everything up again from
+// scratch and start listening again. This can be useful if a server restart is
+// wanted without running `ListenAndServe` in a loop.
+func (s *Server) Restart() {
+	// Restart is noop if not running.
+	if atomic.LoadInt32(&s.isRunning) == 0 {
+		return
+	}
+
+	s.restartChan <- struct{}{}
 }
 
 // cancelConsumers will cancel the specified consumers.
