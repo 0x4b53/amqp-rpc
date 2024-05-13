@@ -2,11 +2,9 @@ package middleware
 
 import (
 	"context"
-	"log"
-
-	amqp "github.com/rabbitmq/amqp091-go"
 
 	amqprpc "github.com/0x4b53/amqp-rpc/v3"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // OnErrFunc is the function that will be called when the middleware get an
@@ -17,9 +15,11 @@ type OnErrFunc func(err error, correlationID string)
 // AckLogError is a built-in function that will log the error if any is returned
 // from `Ack`.
 //
-//	middleware := AckDelivery(AckLogError)
-func AckLogError(err error, correlationID string) {
-	log.Printf("could not ack delivery (%s): %v\n", correlationID, err)
+//	middleware := AckDelivery(AckLogError(log.Printf))
+func AckLogError(logFn amqprpc.LogFunc) OnErrFunc {
+	return func(err error, correlationID string) {
+		logFn("could not ack delivery (%s): %v\n", correlationID, err)
+	}
 }
 
 // AckDelivery is a middleware that will acknowledge the delivery after the
