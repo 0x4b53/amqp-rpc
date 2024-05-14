@@ -185,6 +185,10 @@ func TestManualRestart(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []byte("Hello"), reply.Body)
 
+	// We only care about one restart but let's call multiple ones to ensure
+	// we're not blocking.
+	s.Restart()
+	s.Restart()
 	s.Restart()
 	<-hasStarted
 

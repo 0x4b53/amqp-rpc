@@ -540,7 +540,17 @@ func (s *Server) Restart() {
 		return
 	}
 
-	s.restartChan <- struct{}{}
+	// Ensure we never block on the restartChan, if we're in the middle of a
+	// setup or teardown process we won't be listening on this channel and if so
+	// we do a noop.
+	// This can likely happen e.g. if you have multiple messages in memory and
+	// acknowledging them stops working, you might call `Restart` on all of them
+	// but only the first one should trigger the restart.
+	select {
+	case s.restartChan <- struct{}{}:
+	default:
+		s.debugLog("server: no listener on restartChan, ensure server is running")
+	}
 }
 
 // cancelConsumers will cancel the specified consumers.
