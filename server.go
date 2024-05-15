@@ -69,6 +69,10 @@ type Server struct {
 	// channel will be closed when Stop() is called.
 	stopChan chan struct{}
 
+	// restartChan channel is used to signal restarts. It can be set by the user
+	// so they can restart the server without having to call Stop()/Start()
+	restartChan chan struct{}
+
 	// isRunning is 1 when the server is running.
 	isRunning int32
 
@@ -94,6 +98,9 @@ func NewServer(url string) *Server {
 		errorLog: log.Printf, // use the standard logger default.
 		//nolint:revive // Keep variables for clarity
 		debugLog: func(format string, args ...interface{}) {}, // don't print anything default.
+		// We ensure to always create a channel so we can call `Restart` without
+		// blocking.
+		restartChan: make(chan struct{}),
 	}
 
 	server.setDefaults()
@@ -190,6 +197,14 @@ func (s *Server) WithDebugLogger(f LogFunc) *Server {
 	return s
 }
 
+// WithRestartChan will add a channel to the server that will trigger a restart
+// when it's triggered.
+func (s *Server) WithRestartChan(ch chan struct{}) *Server {
+	s.restartChan = ch
+
+	return s
+}
+
 // AddMiddleware will add a ServerMiddleware to the list of middlewares to be
 // triggered before the handle func for each request.
 func (s *Server) AddMiddleware(m ServerMiddlewareFunc) *Server {
@@ -241,7 +256,7 @@ func (s *Server) ListenAndServe() {
 	}
 
 	for {
-		err := s.listenAndServe()
+		shouldRestart, err := s.listenAndServe()
 		// If we couldn't run listenAndServe and an error was returned, make
 		// sure to check if the stopChan was closed - a user might know about
 		// connection problems and have call Stop(). If the channel isn't
@@ -259,6 +274,17 @@ func (s *Server) ListenAndServe() {
 			}
 		}
 
+		if shouldRestart {
+			// We must set up responses again. It's required to close to shut
+			// down the responders so we let the shutdown process close it and
+			// then we re-create it here.
+			s.responses = make(chan processedRequest)
+
+			s.debugLog("server: listener restarting")
+
+			continue
+		}
+
 		s.debugLog("server: listener exiting gracefully")
 
 		break
@@ -267,7 +293,7 @@ func (s *Server) ListenAndServe() {
 	atomic.StoreInt32(&s.isRunning, 0)
 }
 
-func (s *Server) listenAndServe() error {
+func (s *Server) listenAndServe() (bool, error) {
 	s.debugLog("server: starting listener: %s", s.url)
 
 	// We are using two different connections here because:
@@ -277,7 +303,7 @@ func (s *Server) listenAndServe() error {
 	// -- https://godoc.org/github.com/rabbitmq/amqp091-go#Channel.Consume
 	inputConn, outputConn, err := createConnections(s.url, s.dialconfig)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	defer inputConn.Close()
@@ -285,7 +311,7 @@ func (s *Server) listenAndServe() error {
 
 	inputCh, outputCh, err := createChannels(inputConn, outputConn)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	defer inputCh.Close()
@@ -297,7 +323,7 @@ func (s *Server) listenAndServe() error {
 		false,
 	)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// Notify everyone that the server has started.
@@ -312,7 +338,7 @@ func (s *Server) listenAndServe() error {
 	// cancel our consumers.
 	consumerTags, err := s.startConsumers(inputCh, &consumersWg)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// This WaitGroup will reach 0 when the responder() has finished sending
@@ -322,7 +348,8 @@ func (s *Server) listenAndServe() error {
 
 	go s.responder(outputCh, &responderWg)
 
-	err = monitorAndWait(
+	shouldRestart, err := monitorAndWait(
+		s.restartChan,
 		s.stopChan,
 		inputConn.NotifyClose(make(chan *amqp.Error)),
 		outputConn.NotifyClose(make(chan *amqp.Error)),
@@ -330,15 +357,19 @@ func (s *Server) listenAndServe() error {
 		outputCh.NotifyClose(make(chan *amqp.Error)),
 	)
 	if err != nil {
-		return err
+		return shouldRestart, err
 	}
 
-	s.debugLog("server: gracefully shutting down")
+	if shouldRestart {
+		s.debugLog("server: restarting server")
+	} else {
+		s.debugLog("server: gracefully shutting down")
+	}
 
 	// 1. Tell amqp we want to shut down by canceling all the consumers.
 	err = cancelConsumers(inputCh, consumerTags)
 	if err != nil {
-		return err
+		return shouldRestart, err
 	}
 
 	// 3. We've told amqp to stop delivering messages, now we wait for all
@@ -355,7 +386,7 @@ func (s *Server) listenAndServe() error {
 	// 5. We have no more messages incoming and we've published all our
 	// responses. The closing of connections and channels are deferred so we can
 	// just return now.
-	return nil
+	return shouldRestart, nil
 }
 
 func (s *Server) startConsumers(inputCh *amqp.Channel, wg *sync.WaitGroup) ([]string, error) {
@@ -497,6 +528,29 @@ func (s *Server) Stop() {
 	}
 
 	close(s.stopChan)
+}
+
+// Restart will gracefully disconnect from AMQP exactly like `Stop` but instead
+// of returning from `ListenAndServe` it will set everything up again from
+// scratch and start listening again. This can be useful if a server restart is
+// wanted without running `ListenAndServe` in a loop.
+func (s *Server) Restart() {
+	// Restart is noop if not running.
+	if atomic.LoadInt32(&s.isRunning) == 0 {
+		return
+	}
+
+	// Ensure we never block on the restartChan, if we're in the middle of a
+	// setup or teardown process we won't be listening on this channel and if so
+	// we do a noop.
+	// This can likely happen e.g. if you have multiple messages in memory and
+	// acknowledging them stops working, you might call `Restart` on all of them
+	// but only the first one should trigger the restart.
+	select {
+	case s.restartChan <- struct{}{}:
+	default:
+		s.debugLog("server: no listener on restartChan, ensure server is running")
+	}
 }
 
 // cancelConsumers will cancel the specified consumers.

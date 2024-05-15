@@ -103,7 +103,7 @@ type PublishSettings struct {
 	ConfirmMode bool
 }
 
-func monitorAndWait(stopChan chan struct{}, amqpErrs ...chan *amqp.Error) error {
+func monitorAndWait(restartChan, stopChan chan struct{}, amqpErrs ...chan *amqp.Error) (bool, error) {
 	result := make(chan error, len(amqpErrs))
 
 	// Setup monitoring for connections and channels, can be several connections and several channels.
@@ -121,9 +121,11 @@ func monitorAndWait(stopChan chan struct{}, amqpErrs ...chan *amqp.Error) error 
 
 	select {
 	case err := <-result:
-		return err
+		return true, err
+	case <-restartChan:
+		return true, nil
 	case <-stopChan:
-		return nil
+		return false, nil
 	}
 }
 
