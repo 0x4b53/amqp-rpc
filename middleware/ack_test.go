@@ -65,7 +65,7 @@ func TestAckDelivery(t *testing.T) {
 			// Block until ready.
 			<-isListening
 
-			handler := AckDelivery(AckSendOnChannel(log.Printf, ch))(tt.handler)
+			handler := AckDelivery(OnErrSendOnChannel(log.Printf, ch))(tt.handler)
 
 			rw := amqprpc.NewResponseWriter(&amqp.Publishing{})
 			d := amqp.Delivery{Acknowledger: acknowledger, CorrelationId: "id-1234"}

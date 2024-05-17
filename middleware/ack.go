@@ -11,22 +11,22 @@ import (
 // error from `Ack`. The error and the delivery will be passed.
 type OnErrFunc func(err error, delivery amqp.Delivery)
 
-// AckLogError is a built-in function that will log the error if any is returned
-// from `Ack`.
+// OnErrLogError is a built-in function that will log the error if any is
+// returned from `Ack`.
 //
-//	middleware := AckDelivery(AckLogError(log.Printf))
-func AckLogError(logFn amqprpc.LogFunc) OnErrFunc {
+//	middleware := AckDelivery(OnErrLogError(log.Printf))
+func OnErrLogError(logFn amqprpc.LogFunc) OnErrFunc {
 	return func(err error, delivery amqp.Delivery) {
 		logFn("could not ack delivery (%s): %v\n", delivery.CorrelationId, err)
 	}
 }
 
-// AckSendOnChannel will first log the error and correlation ID and then try to
-// send on the passed channel. If no one is consuming on the passed channel the
-// middleware will not block but instead log a message about missing channel
+// OnErrSendOnChannel will first log the error and correlation ID and then try
+// to send on the passed channel. If no one is consuming on the passed channel
+// the middleware will not block but instead log a message about missing channel
 // consumers.
-func AckSendOnChannel(logFn amqprpc.LogFunc, ch chan struct{}) OnErrFunc {
-	logErr := AckLogError(logFn)
+func OnErrSendOnChannel(logFn amqprpc.LogFunc, ch chan struct{}) OnErrFunc {
+	logErr := OnErrLogError(logFn)
 
 	return func(err error, delivery amqp.Delivery) {
 		logErr(err, delivery)
@@ -34,7 +34,7 @@ func AckSendOnChannel(logFn amqprpc.LogFunc, ch chan struct{}) OnErrFunc {
 		select {
 		case ch <- struct{}{}:
 		default:
-			logFn("ack middleware: could not send on channel, no one is consuming")
+			logFn("ack middleware: could not send on channel, no one is consuming\n")
 		}
 	}
 }
