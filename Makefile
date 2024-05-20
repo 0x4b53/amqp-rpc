@@ -38,6 +38,6 @@ test: compose ## Run all tests (with race detection)
 
 coverage:
 	go test -coverprofile c.out ./...
-	@sed -i "s%github.com/0x4b53/amqp-rpc/v3/%amqp-rpc/%" c.out
+	@sed -i "s%github.com/0x4b53/amqp-rpc/v4/%amqp-rpc/%" c.out
 
 .PHONY: all compose compose-down help hooks lint test

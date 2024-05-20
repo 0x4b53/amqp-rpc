@@ -1,7 +1,6 @@
-version: '3'
 services:
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:3.11.16-management
     expose:
      - "5672"
      - "15672"

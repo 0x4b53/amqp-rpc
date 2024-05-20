@@ -9,8 +9,8 @@ import (
 	"strings"
 	"syscall"
 
-	amqprpc "github.com/0x4b53/amqp-rpc/v3"
-	amqprpcmw "github.com/0x4b53/amqp-rpc/v3/middleware"
+	amqprpc "github.com/0x4b53/amqp-rpc/v4"
+	amqprpcmw "github.com/0x4b53/amqp-rpc/v4/middleware"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
