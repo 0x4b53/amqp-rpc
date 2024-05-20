@@ -25,11 +25,17 @@ type MockAcknowledger struct {
 	Acks    int
 	Nacks   int
 	Rejects int
+	OnAckFn func() error
 }
 
 // Ack increases Acks.
 func (ma *MockAcknowledger) Ack(_ uint64, _ bool) error {
 	ma.Acks++
+
+	if ma.OnAckFn != nil {
+		return ma.OnAckFn()
+	}
+
 	return nil
 }
 
