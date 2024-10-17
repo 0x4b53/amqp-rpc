@@ -8,10 +8,9 @@ import (
 	"testing"
 	"time"
 
+	amqprpc "github.com/0x4b53/amqp-rpc/v4"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
-
-	amqprpc "github.com/0x4b53/amqp-rpc/v4"
 )
 
 func TestAckDelivery(t *testing.T) {
@@ -67,10 +66,10 @@ func TestAckDelivery(t *testing.T) {
 
 			handler := AckDelivery(OnAckErrorSendOnChannel(log.Printf, ch))(tt.handler)
 
-			rw := amqprpc.NewResponseWriter(&amqp.Publishing{})
+			rw := amqprpc.ResponseWriter{Publishing: &amqp.Publishing{}}
 			d := amqp.Delivery{Acknowledger: acknowledger, CorrelationId: "id-1234"}
 
-			handler(context.Background(), rw, d)
+			handler(context.Background(), &rw, d)
 
 			assert.Equal(t, 1, acknowledger.Acks)
 			assert.Eventually(t, func() bool {

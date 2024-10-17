@@ -19,6 +19,11 @@ type Request struct {
 	// request.
 	RoutingKey string
 
+	// Mandatory will set the mandatory flag on the request. When this is true
+	// the request must be routable or the Send will return a NO_ROUTE amqp
+	// error.
+	Mandatory bool
+
 	// Reply is a boolean value telling if the request should wait for a reply
 	// or just send the request without waiting.
 	Reply bool
@@ -63,6 +68,7 @@ func NewRequest() *Request {
 	r := Request{
 		Context:     context.Background(),
 		Reply:       true,
+		Mandatory:   true,
 		middlewares: []ClientMiddlewareFunc{},
 		Publishing: amqp.Publishing{
 			ContentType: "text/plain",
@@ -71,6 +77,15 @@ func NewRequest() *Request {
 	}
 
 	return &r
+}
+
+// WithMandatory will set the mandatory flag on the request. When this is true,
+// the request must be routable, eg. a queue must be bound in such a way that
+// RabbitMQ can route the message to that queue.
+func (r *Request) WithMandatory(val bool) *Request {
+	r.Mandatory = val
+
+	return r
 }
 
 // WithRoutingKey will set the routing key for the request.

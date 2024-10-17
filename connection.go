@@ -2,6 +2,8 @@ package amqprpc
 
 import (
 	"errors"
+	"fmt"
+	"maps"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -20,64 +22,18 @@ type OnStartedFunc func(inputConn, outputConn *amqp.Connection, inputChannel, ou
 // ExchangeDeclareSettings is the settings that will be used when a handler
 // is mapped to a fanout exchange and an exchange is declared.
 type ExchangeDeclareSettings struct {
+	// Name is the name of the exchange.
+	Name string
+
+	// Type is the exchange type.
+	Type string
+
 	// Durable sets the durable flag. Durable exchanges survives server restart.
 	Durable bool
 
 	// AutoDelete sets the auto-delete flag, this ensures the exchange is
 	// deleted when it isn't bound to any more.
 	AutoDelete bool
-
-	// Args sets the arguments table used.
-	Args amqp.Table
-}
-
-// QueueDeclareSettings is the settings that will be used when the response
-// any kind of queue is declared. Se documentation for amqp.QueueDeclare
-// for more information about these settings.
-type QueueDeclareSettings struct {
-	// DeleteWhenUnused sets the auto-delete flag. It's recommended to have this
-	// set to false so that amqp-rpc can reconnect and use the same queue while
-	// keeping any messages in the queue.
-	DeleteWhenUnused bool
-
-	// Durable sets the durable flag. It's recommended to have this set to false
-	// and instead use ha-mode for queues and messages.
-	Durable bool
-
-	// Exclusive sets the exclusive flag when declaring queues. This flag has
-	// no effect on Clients reply-to queues which are never exclusive so it
-	// can support reconnects properly.
-	Exclusive bool
-
-	// Args sets the arguments table used.
-	Args amqp.Table
-}
-
-// ConsumeSettings is the settings that will be used when the consumption
-// on a specified queue is started.
-type ConsumeSettings struct {
-	// Consumer sets the consumer tag used when consuming.
-	Consumer string
-
-	// AutoAck sets the auto-ack flag. When this is set to false, you must
-	// manually ack any deliveries. This is always true for the Client when
-	// consuming replies.
-	AutoAck bool
-
-	// Exclusive sets the exclusive flag. When this is set to true, no other
-	// instances can consume from a given queue. This has no affect on the
-	// Client when consuming replies where it's always set to true so that no
-	// two clients can consume from the same reply-to queue.
-	Exclusive bool
-
-	// QoSPrefetchCount sets the prefetch-count. Set this to a value to ensure
-	// that amqp-rpc won't prefetch all messages in the queue. This has no
-	// effect on the Client which will always try to fetch everything.
-	QoSPrefetchCount int
-
-	// QoSPrefetchSize sets the prefetch-size. Set this to a value to ensure
-	// that amqp-rpc won't prefetch all messages in the queue.
-	QoSPrefetchSize int
 
 	// Args sets the arguments table used.
 	Args amqp.Table
@@ -129,18 +85,33 @@ func monitorAndWait(restartChan, stopChan chan struct{}, amqpErrs ...chan *amqp.
 	}
 }
 
-func createConnections(url string, config amqp.Config) (conn1, conn2 *amqp.Connection, err error) {
-	conn1, err = amqp.DialConfig(url, config)
+func createConnections(url, name string, config amqp.Config) (consumerConn, publisherConn *amqp.Connection, err error) {
+	if config.Properties == nil {
+		config.Properties = amqp.Table{}
+	}
+
+	consumerConnConfig := config
+	publisherConnConfig := config
+
+	if _, ok := config.Properties["connection_name"]; !ok {
+		consumerConnConfig.Properties = maps.Clone(config.Properties)
+		publisherConnConfig.Properties = maps.Clone(config.Properties)
+
+		consumerConnConfig.Properties["connection_name"] = fmt.Sprintf("%s-consumer", name)
+		publisherConnConfig.Properties["connection_name"] = fmt.Sprintf("%s-publisher", name)
+	}
+
+	consumerConn, err = amqp.DialConfig(url, consumerConnConfig)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	conn2, err = amqp.DialConfig(url, config)
+	publisherConn, err = amqp.DialConfig(url, publisherConnConfig)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return conn1, conn2, nil
+	return consumerConn, publisherConn, nil
 }
 
 func createChannels(inputConn, outputConn *amqp.Connection) (inputCh, outputCh *amqp.Channel, err error) {

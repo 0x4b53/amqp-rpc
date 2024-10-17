@@ -1,14 +1,9 @@
 ---
-output:
-  # print lines of code with issue, default is true
-  print-issued-lines: false
-
 # all available settings of specific linters
 linters-settings:
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment
+  stylecheck:
+    # STxxxx checks in https://staticcheck.io/docs/configuration/options/#checks
+    checks: ["all", "-ST1000"]
   depguard:
     rules:
       main:
@@ -19,63 +14,53 @@ linters-settings:
             desc: "wrong testify package"
   misspell:
     locale: US
-  gocritic:
-    # Enable multiple checks by tags, run `GL_DEBUG=gocritic golangci-lint run`
-    # to see all tags and checks. Empty list by default. See
-    # https://github.com/go-critic/go-critic#usage -> section "Tags".
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-    disabled-checks:
-      - hugeParam
-  wsl:
-    # Force newlines in end of case at this limit (0 = never).
-    force-case-trailing-whitespace: 0
 
 linters:
-  enable-all: true
-  disable:
-    - cyclop
-    - copyloopvar
-    - dupl
-    - execinquery
-    - exhaustruct
-    - forbidigo
-    - funlen
+  disable-all: true
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - depguard
+    - errcheck
+    - errchkjson
+    - errorlint
+    - exhaustive
+    - fatcontext
     - gci
-    - gocognit
-    - gocyclo
+    - gocritic
     - godox
-    - gomnd
-    - lll
-    - mnd
-    - nakedret
-    - nlreturn
-    - noctx
-    - nonamedreturns
-    - paralleltest
-    - perfsprint
-    - prealloc
-    - testpackage
-    - varnamelen
-    - wrapcheck
-  disable-all: false
-  fast: false
-
+    - gofmt
+    - gofumpt
+    - goimports
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - nolintlint
+    - predeclared
+    - reassign
+    - sloglint
+    - staticcheck
+    - stylecheck
+    - unparam
+    - unused
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+    - wsl
 issues:
-  # Independently from option `exclude` we use default exclude patterns,
-  # it can be disabled by this option. To list all
-  # excluded by default patterns execute `golangci-lint run --help`.
-  # Default value for this option is true.
-  exclude-use-default: true
-
-  # Maximum issues count per one linter. Set to 0 to disable. Default is 50.
-  max-issues-per-linter: 0
-
-  # Maximum count of issues with the same text. Set to 0 to disable. Default is
-  # 3.
-  max-same-issues: 0
+  exclude-use-default: false
+  exclude-rules:
+    - path: '(testing.go)|((.+)_test\.go)'
+      linters:
+        - errcheck
+        - gosec
+    - text: "Error return value of `.*\\.Close` is not checked"
+      linters:
+        - errcheck
+    - text: G104
+      linters:
+        - gosec
 # vim: set sw=2 ts=2 et:
+    #

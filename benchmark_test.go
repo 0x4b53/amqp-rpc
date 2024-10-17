@@ -2,7 +2,6 @@ package amqprpc
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"testing"
 	"time"
@@ -28,11 +27,7 @@ func Benchmark(b *testing.B) {
 	fastClient := NewClient(testURL).
 		WithErrorLogger(log.Printf).
 		WithTimeout(3 * time.Minute).
-		WithPublishSettings(PublishSettings{
-			Mandatory:   true,
-			Immediate:   false,
-			ConfirmMode: false,
-		})
+		WithConfirmMode(false)
 
 	defer fastClient.Stop()
 
@@ -89,7 +84,7 @@ func Benchmark(b *testing.B) {
 	}
 
 	for _, bm := range benchmarks {
-		b.Run(fmt.Sprintf(bm.name), func(b *testing.B) {
+		b.Run(bm.name, func(b *testing.B) {
 			routingKey := queueName
 			if bm.returned {
 				routingKey = "does-not-exist"
