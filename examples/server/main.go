@@ -9,21 +9,21 @@ import (
 	"strings"
 	"syscall"
 
+	amqp "github.com/rabbitmq/amqp091-go"
+
 	amqprpc "github.com/0x4b53/amqp-rpc/v4"
 	amqprpcmw "github.com/0x4b53/amqp-rpc/v4/middleware"
-
-	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 func main() {
-	debugLogger := log.New(os.Stdout, "DEBUG - ", log.LstdFlags)
+	// debugLogger := log.New(os.Stdout, "DEBUG - ", log.LstdFlags)
 	errorLogger := log.New(os.Stdout, "ERROR - ", log.LstdFlags)
 
 	s := amqprpc.NewServer("amqp://guest:guest@localhost:5672/").
 		AddMiddleware(amqprpcmw.PanicRecoveryLogging(errorLogger.Printf))
 
 	s.WithErrorLogger(errorLogger.Printf)
-	s.WithDebugLogger(debugLogger.Printf)
+	// s.WithDebugLogger(debugLogger.Printf)
 
 	s.Bind(amqprpc.DirectBinding("upper", upper))
 	s.Bind(amqprpc.DirectBinding("beat", beat))

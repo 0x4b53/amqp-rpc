@@ -13,7 +13,7 @@ import (
 func main() {
 	c := amqprpc.NewClient("amqp://guest:guest@localhost:5672/")
 	c.WithErrorLogger(log.New(os.Stdout, "ERROR - ", log.LstdFlags).Printf)
-	c.WithDebugLogger(log.New(os.Stdout, "DEBUG - ", log.LstdFlags).Printf)
+	// c.WithDebugLogger(log.New(os.Stdout, "DEBUG - ", log.LstdFlags).Printf)
 
 	reader := bufio.NewReader(os.Stdin)
 
@@ -35,16 +35,22 @@ func main() {
 }
 
 func heartbeat(c *amqprpc.Client) {
+	counter := 0
+
 	for {
 		_, err := c.Send(
 			amqprpc.NewRequest().WithRoutingKey("beat").
 				WithBody(time.Now().String()).
-				WithTimeout(100 * time.Millisecond),
+				WithTimeout(5 * time.Second),
 		)
 		if err != nil {
 			fmt.Println("Heartbeat error: ", err)
 		}
 
-		time.Sleep(1 * time.Second)
+		if counter%1000 == 0 {
+			fmt.Println("Heartbeat")
+		}
+
+		counter++
 	}
 }

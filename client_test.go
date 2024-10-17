@@ -16,7 +16,7 @@ import (
 )
 
 func TestClient(t *testing.T) {
-	_, client, start, stop := initTest()
+	_, client, start, stop := initTest(t)
 	defer stop()
 
 	start()
@@ -29,7 +29,7 @@ func TestClient(t *testing.T) {
 }
 
 func TestClientNoConfirmMode(t *testing.T) {
-	_, client, start, stop := initTest()
+	_, client, start, stop := initTest(t)
 	defer stop()
 
 	client.WithConfirmMode(false)
@@ -43,8 +43,8 @@ func TestClientNoConfirmMode(t *testing.T) {
 	assert.Equal(t, []byte("Got message: client testing"), response.Body, "correct body in response")
 }
 
-func TestClientDataRace(_ *testing.T) {
-	_, client, start, stop := initTest()
+func TestClientDataRace(t *testing.T) {
+	_, client, start, stop := initTest(t)
 	defer stop()
 
 	start()
@@ -69,7 +69,7 @@ func TestClientDataRace(_ *testing.T) {
 }
 
 func TestClientReturn(t *testing.T) {
-	_, client, start, stop := initTest()
+	_, client, start, stop := initTest(t)
 	defer stop()
 
 	start()
@@ -335,27 +335,19 @@ func TestClientConfig(t *testing.T) {
 	assert.NotNil(t, certClient, "client with certificate exist")
 
 	ac := amqp.Config{}
-	qdSettings := QueueDeclareSettings{}
-	cSettings := ConsumeSettings{}
-	publSettings := PublishSettings{}
 
-	acClient := NewClient(testURL).WithDialConfig(ac).
-		WithQueueDeclareSettings(qdSettings).
-		WithPublishSettings(publSettings).
-		WithConsumeSettings(cSettings).
+	acClient := NewClient(testURL).
+		WithDialConfig(ac).
 		WithConfirmMode(true).
 		WithTimeout(2500 * time.Millisecond)
 	defer acClient.Stop()
 
 	assert.NotNil(t, acClient, "configured client exist")
-
-	assert.True(t, acClient.publishSettings.ConfirmMode)
-	assert.False(t, acClient.publishSettings.Immediate)
-	assert.False(t, acClient.publishSettings.Mandatory)
+	assert.True(t, acClient.confirmMode)
 }
 
 func TestClientReconnect(t *testing.T) {
-	_, client, start, stop := initTest()
+	_, client, start, stop := initTest(t)
 	defer stop()
 
 	start()
@@ -399,7 +391,7 @@ func TestClientRetry(t *testing.T) {
 				return conn, err
 			}
 
-			_, client, start, stop := initTest()
+			_, client, start, stop := initTest(t)
 			defer stop()
 
 			client.
@@ -444,7 +436,7 @@ func TestClientRetry(t *testing.T) {
 }
 
 func TestClientTimeout(t *testing.T) {
-	server, client, start, stop := initTest()
+	server, client, start, stop := initTest(t)
 	defer stop()
 
 	server.Bind(DirectBinding("timeout-queue", func(_ context.Context, _ *ResponseWriter, d amqp.Delivery) {

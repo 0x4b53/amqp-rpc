@@ -1,6 +1,6 @@
 CURL               ?= curl
 DOCKER_COMPOSE      = docker-compose
-GOLANGCI_VERSION    = v1.58.1
+GOLANGCI_VERSION    = v1.61.0
 GOPATH              = $(shell go env GOPATH)
 
 all: lint test ## Run linting and testing

@@ -13,21 +13,6 @@ func TestResponseWriter(t *testing.T) {
 		Publishing: &amqp.Publishing{},
 	}
 
-	assert.False(t, rw.Immediate, "immediate starts false")
-	assert.False(t, rw.Mandatory, "mandatory starts false")
-
-	rw.Immediate = true
-	rw.Mandatory = true
-
-	assert.True(t, rw.Immediate, "immediate is changed to true")
-	assert.True(t, rw.Mandatory, "mandatory is changed to true")
-
-	rw.Immediate = false
-	rw.Mandatory = false
-
-	assert.False(t, rw.Immediate, "immediate are changed to false")
-	assert.False(t, rw.Mandatory, "mandatory is changed to false")
-
 	fmt.Fprint(rw, "Foo")
 	assert.Equal(t, []byte("Foo"), rw.Publishing.Body, "writing to response writer is reflected in the body")
 
