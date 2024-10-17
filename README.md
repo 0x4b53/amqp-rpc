@@ -21,8 +21,8 @@
 
 ## Description
 
-This is a framework to use [RabbitMQ] as a client/server RPC setup togheter with
-the [Go amqp] implementation. The framework can manage a fully funcitonal
+This is a framework to use [RabbitMQ] as a client/server RPC setup together with
+the [Go amqp] implementation. The framework can manage a fully functional
 message queue setup with reconnects, disconnects, graceful shutdown and other
 stability mechanisms. By providing this RabbitMQ can be used as transport and
 service discovery to quickly get up and running with a micro service
@@ -35,7 +35,7 @@ nomenclature is unique for RabbitMQ some prior experience is preferred.
 
 ## Project status
 
-This project has been used in production since october 2018 handling millions of
+This project has been used in production since October 2018 handling millions of
 requests both as server and client.
 
 ## Server
@@ -44,7 +44,7 @@ The server is inspired by the HTTP library where the user maps a [RabbitMQ
 binding] to a handler function. A response writer is passed to the handler which
 may be used as an `io.Writer` to write the response.
 
-This is an an example of how to get up and running with a server responding to
+This is an example of how to get up and running with a server responding to
 all messages published to the given routing key.
 
 ```go
@@ -67,7 +67,6 @@ type.
 
 ```go
 server.Bind(DirectBinding("routing_key", handleFunc))
-server.Bind(FanoutBinding("fanout-exchange", handleFunc))
 server.Bind(TopicBinding("queue-name", "routing_key.#", handleFunc))
 server.Bind(HeadersBinding("queue-name", amqp.Table{"x-match": "all", "foo": "bar"}, handleFunc))
 ```
@@ -76,14 +75,9 @@ If the default variables doesn't result in the desired result you can setup the
 binding with the type manually.
 
 ```go
-customBinding := HandlerBinding{
-    QueueName:    "oh-sweet-queue",
-    ExchangeName: "my-exchange",
-    ExchangeType: ExchangeDirect,
-    RoutingKey:   "my-key",
-    BindHeaders:  amqp.Table{},
-    Handler:      handleFunc,
-}
+customBinding := CreateBinding("oh-sweet-queue", DefaultExchangeNameDirect, handleFunc).
+    WithPrefetchCount(100).
+    WithAutoAck(false)
 
 server.Bind(customBinding)
 ```
@@ -94,18 +88,13 @@ can be changed by calling chainable methods.
 
 ```go
 server := NewServer("amqp://guest:guest@localhost:5672").
-    WithConsumeSettings(ConsumeSettings{}).
-    WithQueueDeclareSettings(QueueDeclareSettings{}).
-    WithExchangeDeclareSettings(ExchangeDeclareSettings{}).
     WithDebugLogger(log.Printf).
     WithErrorLogger(log.Printf).
-    WithDialConfig(amqp.Config{}).
     WithTLS(&tls.Config{})
 ```
 
-QoS is by default set to a prefetch count of `10` and a prefetch size of `0` (no
-limit). If you want to change this you can use the
-`WithConsumeSettings(settings)` function.
+QoS is by default set to a prefetch count of `10`. If you want to change this
+you can modify the binding by setting the `PrefetchCount` to something else.
 
 ## Client
 
@@ -142,7 +131,7 @@ methods.
 client := NewClient("amqp://guest:guest@localhost:5672").
     WithTimeout(5000 * time.Milliseconds)
 
-// Will not connect and may be changed untill this call.
+// Will not connect and may be changed until this call.
 client.Send(NewRequest().WithRoutingKey("routing_key"))
 ```
 
@@ -154,10 +143,8 @@ client := NewClient("amqp://guest:guest@localhost:5672").
     WithErrorLogger(log.Printf).
     WithDialConfig(amqp.Config{}).
     WithTLS(&tls.Config{}).
-    WithQueueDeclareSettings(QueueDeclareSettings{}).
-    WithConsumeSettings(ConsumeSettings{}).
-    WithPublishSettings(PublishSettings{}).
-    WithConfirmMode(true),
+    WithReplyToConsumerArgs(amqp.Table{}).
+    WithConfirmMode(false),
     WithTimeout(10 * Time.Second)
 ```
 
@@ -170,14 +157,12 @@ can read more here](https://www.rabbitmq.com/confirms.html#publisher-confirms)
 
 The client is set in confirm mode by default.
 
-You can use `WithPublishSettings` or `WithConfirmMode` to control this setting.
+You can use `WithConfirmMode` to control this setting. It defaults to `true`.
 
 ```go
 client := NewClient("amqp://guest:guest@localhost:5672").
     WithConfirmMode(true)
 
-client := NewClient("amqp://guest:guest@localhost:5672").
-    WithPublishSettings(true)
 ```
 
 ### Request
@@ -195,8 +180,8 @@ request := NewRequest().
     WithExchange("custom.exchange").
     WithRoutingKey("routing_key").
     WithHeaders(amqp.Headers{}).
-    WithCorrelationID("custom-correlation-id").
     WithTimeout(5 * time.Second).
+    WithMandatory(true).
     WithResponse(true)
 ```
 
@@ -218,10 +203,6 @@ if err != nil {
     panic(err)
 }
 ```
-
-**Note**: If you request a response when sending to a fanout exchange the
-response will be the first one responded from any of the subscribers. There's
-currently no way to stream multiple responses for the same request.
 
 ### Sender
 
@@ -352,7 +333,7 @@ func myMiddleware(next SendFunc) SendFunc {
 client := NewClient("amqp://guest:guest@localhost:5672").
     AddMiddleware(myMiddleware)
 
-// Add the middleware to a singlerequest
+// Add the middleware to a single request
 reuqest := NewRequest().
     WithRoutingKey("routing_key").
     AddMiddleware(myMiddleware)
@@ -371,38 +352,25 @@ For more examples of client middlewares, see [examples/middleware].
 You often want to know when a connection has been established and when it comes
 to RabbitMQ also perform some post connection setup. This is enabled by the fact
 that both the server and the client holds a list of `OnStarted`. The function
-receives the incomming connection, outgoing connection, incomming channel and
+receives the incoming connection, outgoing connection, incoming channel and
 outgoing channel.
 
 ```go
 type OnStartedFunc func(inputConn, outputConn *amqp.Connection, inputChannel, outputChannel *amqp.Channel)
 ```
 
-As an example this is a great place to do some initial QoS setup.
-
 ```go
-server := NewServer("amqp://guest:guest@localhost:5672")
-
-setupQoS(_, _ *amqp.Connection, inChan, _ *amqp.Channel) {
-    err := inChan.Qos(
-        10,   // Prefetch count
-        1024, // Prefetch size
-        true, // Global
-    )
-
-    if err != nil {
-        panic(err.Error())
-    }
+server := NewServer("amqp://guest:guest@localhost:5672").
+    OnStarted(func(inConn, outConn *amqp.Connection, inChan, outChan *amqp.Channel) {
+        // Do something after connection here...
+    })
 }
-
-// Setup QoS when the connection is established.
-server.OnStarted(setupQoS)
 
 server.ListenAndServe()
 ```
 
 Both the server and the client follow the recommendations for [RabbitMQ
-connections] which means separate connections for incomming and outgoing traffic
+connections] which means separate connections for incoming and outgoing traffic
 and separate channels for consuming and publishing messages. Because of this the
 signature looks the same way for both the server and the client.
 
@@ -431,7 +399,7 @@ server.ListenAndServe()
 
 ## Logging
 
-You can specifiy two optional loggers for debugging and errors or unexpected
+You can specify two optional loggers for debugging and errors or unexpected
 behaviour. By default only error logging is turned on and is logged via the log
 package's standard logging.
 
