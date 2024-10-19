@@ -1,4 +1,4 @@
-module github.com/0x4b53/amqp-rpc/v4
+module github.com/0x4b53/amqp-rpc/v5
 
 go 1.23
 
