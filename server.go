@@ -103,12 +103,11 @@ func NewServer(url string) *Server {
 	return &server
 }
 
-// WithConnectionNamePrefix sets the connection name prefix for the server.
-// Every connection the server uses will have this prefix in it's connection
-// name. The connection name is `myprefix.publisher` and `myprefix.consumer`
-// for the publisher and consumer connection respectively. This can be
-// overridden by using the `WithDialConfig` method to set the connection_name
-// property.
+// WithName sets the connection name prefix for the server. Every connection
+// the server uses will have this prefix in it's connection name. The
+// connection name is `myprefix.publisher` and `myprefix.consumer` for the
+// publisher and consumer connection respectively. This can be overridden by
+// using the `WithDialConfig` method to set the connection_name property.
 func (s *Server) WithName(name string) *Server {
 	s.name = name
 

@@ -11,8 +11,8 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	amqprpc "github.com/0x4b53/amqp-rpc/v4"
-	amqprpcmw "github.com/0x4b53/amqp-rpc/v4/middleware"
+	amqprpc "github.com/0x4b53/amqp-rpc/v5"
+	amqprpcmw "github.com/0x4b53/amqp-rpc/v5/middleware"
 )
 
 func main() {
