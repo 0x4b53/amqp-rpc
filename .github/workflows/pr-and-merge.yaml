@@ -17,12 +17,12 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.23"
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.58.1
+          version: v1.61.0
 
   tests:
     name: tests
@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       rabbitmq:
-        image: rabbitmq:3-management
+        image: rabbitmq:4-management
         ports:
           - 5672:5672
           - 15672:15672
@@ -42,37 +42,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.23"
 
       - name: Test code
         run: go test -race -v ./...
-
-  coverage:
-    name: coverage
-    runs-on: ubuntu-latest
-    services:
-      rabbitmq:
-        image: rabbitmq:3-management
-        ports:
-          - 5672:5672
-          - 15672:15672
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-
-      - name: Code Climate Coverage Action
-        uses: paambaati/codeclimate-action@v6.0.0
-        env:
-          CC_TEST_REPORTER_ID: ${{secrets.CC_TEST_REPORTER_ID}}
-        with:
-          # Hack to resolve package:
-          # https://github.com/paambaati/codeclimate-action/issues/109#issuecomment-751311299
-          coverageCommand: make coverage
-          prefix: ${{ github.event.repository.name }}
-          coverageLocations: "${{github.workspace}}/c.out:gocov"

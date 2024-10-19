@@ -4,20 +4,19 @@ import (
 	"context"
 	"testing"
 
+	amqprpc "github.com/0x4b53/amqp-rpc/v5"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
-
-	amqprpc "github.com/0x4b53/amqp-rpc/v4"
 )
 
 func TestPanicRecovery(t *testing.T) {
-	responseWriter := amqprpc.NewResponseWriter(&amqp.Publishing{})
+	responseWriter := amqprpc.ResponseWriter{Publishing: &amqp.Publishing{}}
 	delivery := amqp.Delivery{}
 	called := false
 
 	onRecovery := func(r interface{}, _ context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
 		assert.Equal(t, "oopsie!", r)
-		assert.Equal(t, responseWriter, rw)
+		assert.Equal(t, &responseWriter, rw)
 		assert.Equal(t, delivery, d)
 
 		called = true
@@ -28,7 +27,7 @@ func TestPanicRecovery(t *testing.T) {
 	})
 
 	assert.NotPanics(t, func() {
-		handler(context.Background(), responseWriter, delivery)
+		handler(context.Background(), &responseWriter, delivery)
 	})
 
 	assert.True(t, called)

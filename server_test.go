@@ -13,7 +13,7 @@ import (
 )
 
 func TestSendWithReply(t *testing.T) {
-	_, client, start, stop := initTest()
+	_, client, start, stop := initTest(t)
 	defer stop()
 
 	start()
@@ -31,16 +31,16 @@ func TestSendWithReply(t *testing.T) {
 func TestNoAutomaticAck(t *testing.T) {
 	deleteQueue("no-auto-ack") // Ensure queue is clean from the start.
 
-	server, client, start, stop := initTest()
+	server, client, start, stop := initTest(t)
 	defer stop()
-
-	server.WithAutoAck(false)
 
 	calls := make(chan struct{}, 2)
 
 	server.Bind(
 		DirectBinding("no-auto-ack", func(_ context.Context, _ *ResponseWriter, _ amqp.Delivery) {
 			calls <- struct{}{}
+		}).With(func(b *HandlerBinding) {
+			b.AutoAck = false
 		}),
 	)
 
@@ -88,7 +88,7 @@ func TestMiddleware(t *testing.T) {
 		}
 	}
 
-	server, client, start, stop := initTest()
+	server, client, start, stop := initTest(t)
 	defer stop()
 
 	server.AddMiddleware(mw)
@@ -124,13 +124,14 @@ func TestServerReconnect(t *testing.T) {
 			Properties: amqp.Table{
 				"connection_name": "server-reconnect-test",
 			},
-		}).
-		WithAutoAck(false)
+		})
 
 	s.Bind(DirectBinding("myqueue", func(_ context.Context, rw *ResponseWriter, d amqp.Delivery) {
 		_ = d.Ack(false)
 
 		fmt.Fprintf(rw, "Hello")
+	}).With(func(b *HandlerBinding) {
+		b.AutoAck = false
 	}))
 
 	stop := startAndWait(s)
@@ -158,8 +159,7 @@ func TestManualRestart(t *testing.T) {
 
 	s := NewServer(testURL).
 		WithRestartChan(restartChan).
-		WithDebugLogger(log.Printf).
-		WithAutoAck(false)
+		WithDebugLogger(log.Printf)
 
 	s.OnStarted(func(_, _ *amqp.Connection, _, _ *amqp.Channel) {
 		hasStarted <- struct{}{}
@@ -169,6 +169,8 @@ func TestManualRestart(t *testing.T) {
 		_ = d.Ack(false)
 
 		fmt.Fprintf(rw, "Hello")
+	}).With(func(b *HandlerBinding) {
+		b.AutoAck = false
 	}))
 
 	// Wait for the initial startup signal.
@@ -259,37 +261,43 @@ func TestStopWhenStarting(t *testing.T) {
 	}
 }
 
-func TestServerConfig(t *testing.T) {
-	s := NewServer(testURL)
-	assert.NotNil(t, s)
-	assert.True(t, s.exchangeDeclareSettings.Durable)
-	assert.Equal(t, 10, s.consumeSettings.QoSPrefetchCount)
+func TestDeclareExchanges(t *testing.T) {
+	s, c, start, stop := initTest(t)
+	defer stop()
 
-	qdSettings := QueueDeclareSettings{
-		DeleteWhenUnused: true,
-		Durable:          true,
-	}
-	cSettings := ConsumeSettings{
-		QoSPrefetchCount: 20,
-		QoSPrefetchSize:  100,
-		Consumer:         "myconsumer",
-	}
-	eSettings := ExchangeDeclareSettings{
-		Durable:    false,
+	s.WithExchanges(ExchangeDeclareSettings{
+		Name:       "my_exchange",
+		Type:       ExchangeHeaders,
+		Durable:    true,
 		AutoDelete: true,
-	}
+		Args:       amqp.Table{},
+	})
 
-	s.WithQueueDeclareSettings(qdSettings).
-		WithConsumeSettings(cSettings).
-		WithExchangeDeclareSettings(eSettings)
+	s.Bind(
+		HeadersBinding("my_queue",
+			amqp.Table{"foo": "bar"},
+			func(_ context.Context, rw *ResponseWriter, _ amqp.Delivery) {
+				fmt.Fprintf(rw, "result")
+			}).With(
+			func(b *HandlerBinding) {
+				b.ExchangeName = "my_exchange"
+			},
+		),
+	)
 
-	assert.Equal(t, s.queueDeclareSettings, qdSettings)
-	assert.Equal(t, s.consumeSettings, cSettings)
-	assert.Equal(t, s.exchangeDeclareSettings, eSettings)
+	start()
+
+	req := NewRequest().
+		WithExchange("my_exchange").
+		WithHeaders(amqp.Table{"foo": "bar"})
+
+	reply, err := c.Send(req)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("result"), reply.Body)
 }
 
 func TestContextDoneWhenServerStopped(t *testing.T) {
-	server, client, start, stop := initTest()
+	server, client, start, stop := initTest(t)
 
 	isShuttingDown := make(chan bool, 1)
 

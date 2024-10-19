@@ -3,9 +3,8 @@ package middleware
 import (
 	"context"
 
+	amqprpc "github.com/0x4b53/amqp-rpc/v5"
 	amqp "github.com/rabbitmq/amqp091-go"
-
-	amqprpc "github.com/0x4b53/amqp-rpc/v4"
 )
 
 // PanicRecovery is a middleware that will recover any panics caused by a

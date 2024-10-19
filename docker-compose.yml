@@ -1,12 +1,14 @@
 services:
   rabbitmq:
-    image: rabbitmq:3.11.16-management
+    image: rabbitmq:4-management
     expose:
      - "5672"
      - "15672"
     ports:
       - "5672:5672"
       - "15672:15672"
+    volumes:
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
     healthcheck:
       test: ['CMD-SHELL', 'rabbitmqctl status || exit 1']
       interval: 10s

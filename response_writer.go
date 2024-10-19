@@ -14,15 +14,6 @@ write json:
 */
 type ResponseWriter struct {
 	Publishing *amqp.Publishing
-	Mandatory  bool
-	Immediate  bool
-}
-
-// NewResponseWriter will create a new response writer with given amqp.Publishing.
-func NewResponseWriter(p *amqp.Publishing) *ResponseWriter {
-	return &ResponseWriter{
-		Publishing: p,
-	}
 }
 
 // Write will write the response Body of the amqp.Publishing.
