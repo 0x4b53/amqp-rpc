@@ -8,10 +8,9 @@ import (
 	"testing"
 	"time"
 
+	amqprpc "github.com/0x4b53/amqp-rpc/v4"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
-
-	amqprpc "github.com/0x4b53/amqp-rpc/v4"
 )
 
 func TestAckDelivery(t *testing.T) {

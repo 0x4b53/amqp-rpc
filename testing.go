@@ -103,7 +103,7 @@ func closeConnections(names ...string) {
 	// It takes a while (0.5s - 4s) for the management plugin to discover the
 	// connections so we loop until we've found some.
 	for i := 0; i < 20; i++ {
-		resp, err := http.Get(connectionsURL) //nolint:gosec // This URL is fine!
+		resp, err := http.Get(connectionsURL)
 		if err != nil {
 			panic(err)
 		}
