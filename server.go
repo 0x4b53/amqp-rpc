@@ -3,6 +3,7 @@ package amqprpc
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -21,8 +22,6 @@ type HandlerFunc func(context.Context, *ResponseWriter, amqp.Delivery)
 // determine on which queue to reply.
 type processedRequest struct {
 	replyTo    string
-	mandatory  bool
-	immediate  bool
 	publishing amqp.Publishing
 }
 
@@ -39,6 +38,13 @@ type Server struct {
 	// bindings and it's handlers.
 	bindings []HandlerBinding
 
+	// Exchanges is a list of exchanges that should be declared on startup.
+	exchanges []ExchangeDeclareSettings
+
+	// Name is the name of this server, it is used when creating connections,
+	// queues and consumers.
+	name string
+
 	// middlewares are chained and executed on request.
 	middlewares []ServerMiddlewareFunc
 
@@ -52,18 +58,6 @@ type Server struct {
 	// function used to obtain a connection. By default the dialconfig will
 	// include a dial function implemented in connection/dialer.go.
 	dialconfig amqp.Config
-
-	// exchangeDeclareSettings is configurations used when declaring a RabbitMQ
-	// exchange.
-	exchangeDeclareSettings ExchangeDeclareSettings
-
-	// queueDeclareSettings is configuration used when declaring a RabbitMQ
-	// queue.
-	queueDeclareSettings QueueDeclareSettings
-
-	// consumeSetting is configuration used when consuming from the message
-	// bus.
-	consumeSettings ConsumeSettings
 
 	// stopChan channel is used to signal shutdowns when calling Stop(). The
 	// channel will be closed when Stop() is called.
@@ -90,6 +84,7 @@ type Server struct {
 func NewServer(url string) *Server {
 	server := Server{
 		url:         url,
+		name:        "amqprpc-server",
 		bindings:    []HandlerBinding{},
 		middlewares: []ServerMiddlewareFunc{},
 		dialconfig: amqp.Config{
@@ -103,9 +98,18 @@ func NewServer(url string) *Server {
 		restartChan: make(chan struct{}),
 	}
 
-	server.setDefaults()
-
 	return &server
+}
+
+// WithName sets the connection name prefix for the server. Every connection
+// the server uses will have this prefix in it's connection name. The
+// connection name is `myprefix.publisher` and `myprefix.consumer` for the
+// publisher and consumer connection respectively. This can be overridden by
+// using the `WithDialConfig` method to set the connection_name property.
+func (s *Server) WithName(name string) *Server {
+	s.name = name
+
+	return s
 }
 
 // WithDialTimeout sets the DialTimeout and handshake deadline to timeout.
@@ -115,56 +119,10 @@ func (s *Server) WithDialTimeout(timeout time.Duration) *Server {
 	return s
 }
 
-func (s *Server) setDefaults() {
-	s.queueDeclareSettings = QueueDeclareSettings{}
-	s.exchangeDeclareSettings = ExchangeDeclareSettings{
-		Durable: true,
-	}
-	s.consumeSettings = ConsumeSettings{
-		// Use a reasonable default value.
-		// https://www.rabbitmq.com/blog/2012/04/25/rabbitmq-performance-measurements-part-2/
-		// https://godoc.org/github.com/rabbitmq/amqp091-go#Channel.Qos
-		QoSPrefetchCount: 10,
-
-		// Default to letting the AMQP server auto-ack the deliveries.
-		AutoAck: true,
-	}
-}
-
-// WithExchangeDeclareSettings sets configuration used when the server wants
-// to declare exchanges.
-func (s *Server) WithExchangeDeclareSettings(settings ExchangeDeclareSettings) *Server {
-	s.exchangeDeclareSettings = settings
-
-	return s
-}
-
-// WithQueueDeclareSettings sets configuration used when the server wants to
-// declare queues.
-func (s *Server) WithQueueDeclareSettings(settings QueueDeclareSettings) *Server {
-	s.queueDeclareSettings = settings
-
-	return s
-}
-
-// WithConsumeSettings sets configuration used when the server wants to start
-// consuming from a queue.
-func (s *Server) WithConsumeSettings(settings ConsumeSettings) *Server {
-	s.consumeSettings = settings
-
-	return s
-}
-
-// WithAutoAck sets the AMQP servers auto-ack mode.
-func (s *Server) WithAutoAck(b bool) *Server {
-	s.consumeSettings.AutoAck = b
-
-	return s
-}
-
-// WithQoSPrefetchCount sets the AMQP servers QoS pre-fetch count.
-func (s *Server) WithQoSPrefetchCount(c int) *Server {
-	s.consumeSettings.QoSPrefetchCount = c
+// WithExchanges adds exchanges exchange to the list of exchanges that should
+// be declared on startup.
+func (s *Server) WithExchanges(exchanges ...ExchangeDeclareSettings) *Server {
+	s.exchanges = append(s.exchanges, exchanges...)
 
 	return s
 }
@@ -262,6 +220,8 @@ func (s *Server) ListenAndServe() {
 		// connection problems and have call Stop(). If the channel isn't
 		// read/closed within 500ms, retry.
 		if err != nil {
+			s.errorLog("server: got error: %v, will reconnect in %v second(s)", err, 0.5)
+
 			select {
 			case _, ok := <-s.stopChan:
 				if !ok {
@@ -269,7 +229,6 @@ func (s *Server) ListenAndServe() {
 					break
 				}
 			case <-time.After(500 * time.Millisecond):
-				s.errorLog("server: got error: %s, will reconnect in %v second(s)", err, 0.5)
 				continue
 			}
 		}
@@ -301,7 +260,7 @@ func (s *Server) listenAndServe() (bool, error) {
 	// Channel.Consume so not to have TCP pushback on publishing affect the
 	// ability to consume messages [...]"
 	// -- https://godoc.org/github.com/rabbitmq/amqp091-go#Channel.Consume
-	inputConn, outputConn, err := createConnections(s.url, s.dialconfig)
+	inputConn, outputConn, err := createConnections(s.url, s.name, s.dialconfig)
 	if err != nil {
 		return false, err
 	}
@@ -317,17 +276,14 @@ func (s *Server) listenAndServe() (bool, error) {
 	defer inputCh.Close()
 	defer outputCh.Close()
 
-	err = inputCh.Qos(
-		s.consumeSettings.QoSPrefetchCount,
-		s.consumeSettings.QoSPrefetchSize,
-		false,
-	)
+	// Notify everyone that the server has started.
+	s.notifyStarted(inputConn, outputConn, inputCh, outputCh)
+
+	// Create any exchanges that must be declared on startup.
+	err = createExchanges(inputCh, s.exchanges)
 	if err != nil {
 		return false, err
 	}
-
-	// Notify everyone that the server has started.
-	s.notifyStarted(inputConn, outputConn, inputCh, outputCh)
 
 	// Setup a WaitGroup for use by consume(). This WaitGroup will be 0
 	// when all consumers are finished consuming messages.
@@ -405,21 +361,30 @@ func (s *Server) startConsumers(inputCh *amqp.Channel, wg *sync.WaitGroup) ([]st
 }
 
 func (s *Server) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync.WaitGroup) (string, error) {
-	queueName, err := declareAndBind(inputCh, binding, s.queueDeclareSettings, s.exchangeDeclareSettings)
+	err := inputCh.Qos(
+		binding.PrefetchCount,
+		0,     // prefetch size.
+		false, // global. We set it per consumer here.
+	)
 	if err != nil {
 		return "", err
 	}
 
-	consumerTag := uuid.New().String()
+	queueName, err := declareAndBind(inputCh, binding)
+	if err != nil {
+		return "", err
+	}
+
+	consumerTag := fmt.Sprintf("%s-%s-%s", s.name, queueName, uuid.NewString())
 
 	deliveries, err := inputCh.Consume(
 		queueName,
 		consumerTag,
-		s.consumeSettings.AutoAck,
-		s.consumeSettings.Exclusive,
-		false, // no-local
-		false, // no-wait.
-		s.consumeSettings.Args,
+		binding.AutoAck,
+		binding.ExclusiveConsumer, // Works only with classic queues.
+		false,                     // no-local
+		false,                     // no-wait.
+		binding.ConsumerArgs,
 	)
 	if err != nil {
 		return "", err
@@ -470,8 +435,6 @@ func (s *Server) runHandler(
 			if delivery.ReplyTo != "" {
 				s.responses <- processedRequest{
 					replyTo:    delivery.ReplyTo,
-					mandatory:  rw.Mandatory,
-					immediate:  rw.Immediate,
 					publishing: *rw.Publishing,
 				}
 			}
@@ -496,10 +459,10 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 
 		err := outCh.PublishWithContext(
 			context.Background(),
-			"", // exchange
+			"", // Use the default exchange, publishes directly to the queue.
 			response.replyTo,
-			response.mandatory,
-			response.immediate,
+			false, // mandatory. Don't fail if the client has stopped.
+			false, // immediate. Not supported by RabbitMQ.
 			response.publishing,
 		)
 		if err != nil {
@@ -567,43 +530,28 @@ func cancelConsumers(channel *amqp.Channel, consumerTags []string) error {
 
 // declareAndBind will declare a queue, an exchange and the queue to the
 // exchange.
-func declareAndBind(
-	inputCh *amqp.Channel,
-	binding HandlerBinding,
-	queueDeclareSettings QueueDeclareSettings,
-	exchangeDeclareSettings ExchangeDeclareSettings,
-) (string, error) {
-	queue, err := inputCh.QueueDeclare(
-		binding.QueueName,
-		queueDeclareSettings.Durable,
-		queueDeclareSettings.DeleteWhenUnused,
-		queueDeclareSettings.Exclusive,
-		false, // no-wait.
-		queueDeclareSettings.Args,
-	)
-	if err != nil {
-		return "", err
+func declareAndBind(inputCh *amqp.Channel, binding HandlerBinding) (string, error) {
+	queueName := binding.QueueName
+
+	if !binding.SkipQueueDeclare {
+		queue, err := inputCh.QueueDeclare(
+			binding.QueueName,
+			binding.QueueDurable,
+			binding.QueueAutoDelete,
+			binding.QueueExclusive,
+			false, // no-wait.
+			binding.QueueDeclareArgs,
+		)
+		if err != nil {
+			return "", err
+		}
+
+		// In case of auto generated queue name.
+		queueName = queue.Name
 	}
 
-	if binding.ExchangeName == "" {
-		return queue.Name, nil
-	}
-
-	err = inputCh.ExchangeDeclare(
-		binding.ExchangeName,
-		binding.ExchangeType,
-		exchangeDeclareSettings.Durable,
-		exchangeDeclareSettings.AutoDelete,
-		false, // internal.
-		false, // no-wait.
-		exchangeDeclareSettings.Args,
-	)
-	if err != nil {
-		return "", err
-	}
-
-	err = inputCh.QueueBind(
-		queue.Name,
+	err := inputCh.QueueBind(
+		queueName,
 		binding.RoutingKey,
 		binding.ExchangeName,
 		false, // no-wait.
@@ -613,5 +561,5 @@ func declareAndBind(
 		return "", err
 	}
 
-	return queue.Name, nil
+	return queueName, nil
 }

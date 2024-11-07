@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"testing"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -94,6 +96,27 @@ func deleteQueue(name string) {
 	_ = resp.Body.Close()
 }
 
+func deleteAllQueues(t *testing.T) {
+	allQueuesURL := fmt.Sprintf("%s/queues/%s?disable_stats=true", serverAPITestURL, url.PathEscape("/"))
+
+	req, err := http.NewRequest(http.MethodGet, allQueuesURL, http.NoBody)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	var queues []struct {
+		Name string `json:"name"`
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&queues)
+	require.NoError(t, err)
+
+	for _, queue := range queues {
+		deleteQueue(queue.Name)
+	}
+}
+
 func closeConnections(names ...string) {
 	var (
 		connectionsURL = fmt.Sprintf("%s/connections", serverAPITestURL)
@@ -103,7 +126,7 @@ func closeConnections(names ...string) {
 	// It takes a while (0.5s - 4s) for the management plugin to discover the
 	// connections so we loop until we've found some.
 	for i := 0; i < 20; i++ {
-		resp, err := http.Get(connectionsURL) //nolint:gosec // This URL is fine!
+		resp, err := http.Get(connectionsURL)
 		if err != nil {
 			panic(err)
 		}
@@ -193,8 +216,8 @@ func testClient() *Client {
 		)
 }
 
-func initTest() (server *Server, client *Client, start, stop func()) {
-	deleteQueue(defaultTestQueue) // Ensure queue is clean from the start.
+func initTest(t *testing.T) (server *Server, client *Client, start, stop func()) {
+	deleteAllQueues(t)
 
 	server = testServer()
 	client = testClient()
@@ -213,16 +236,11 @@ func initTest() (server *Server, client *Client, start, stop func()) {
 		_, err := client.Send(
 			NewRequest().
 				WithRoutingKey(defaultTestQueue).
-				WithResponse(false),
+				WithMandatory(true).
+				WithResponse(true),
 		)
-		if err != nil {
-			panic(err)
-		}
 
-		stop = func() {
-			stopServer()
-			client.Stop()
-		}
+		require.NoError(t, err)
 	}
 
 	return

@@ -1,6 +1,6 @@
 CURL               ?= curl
 DOCKER_COMPOSE      = docker-compose
-GOLANGCI_VERSION    = v1.58.1
+GOLANGCI_VERSION    = v1.61.0
 GOPATH              = $(shell go env GOPATH)
 
 all: lint test ## Run linting and testing
@@ -38,6 +38,6 @@ test: compose ## Run all tests (with race detection)
 
 coverage:
 	go test -coverprofile c.out ./...
-	@sed -i "s%github.com/0x4b53/amqp-rpc/v4/%amqp-rpc/%" c.out
+	@sed -i "s%github.com/0x4b53/amqp-rpc/v5/%amqp-rpc/%" c.out
 
 .PHONY: all compose compose-down help hooks lint test

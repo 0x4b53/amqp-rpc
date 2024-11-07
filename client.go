@@ -45,6 +45,10 @@ type Client struct {
 	// url is the URL where the server should dial to start subscribing.
 	url string
 
+	// name is the name of the client, it will be used the creation of the
+	// reply-to queue, consumer tags and connection names.
+	name string
+
 	// timeout is the time we should wait after a request is published before
 	// we assume the request got lost.
 	timeout time.Duration
@@ -73,21 +77,20 @@ type Client struct {
 	// connection/dialer.go.
 	dialconfig amqp.Config
 
-	// queueDeclareSettings is configuration used when declaring a RabbitMQ
-	// queue.
-	queueDeclareSettings QueueDeclareSettings
+	// replyToQueueDeclareArgs are any extra args that should be used when
+	// declaring the reply-to queue.
+	replyToQueueDeclareArgs amqp.Table
 
-	// consumeSettings is configuration used when consuming from the message
-	// bus.
-	consumeSettings ConsumeSettings
-
-	// publishSettings is the configuration used when publishing a message with
-	// the client
-	publishSettings PublishSettings
+	// replyToConsumerArgs are any extra args that should be used when
+	// consuming from the reply-to queue.
+	replyToConsumerArgs amqp.Table
 
 	// replyToQueueName can be used to avoid generating queue names on the
 	// message bus and use a pre defined name throughout the usage of a client.
 	replyToQueueName string
+
+	// confirmMode enables confirmation mode when publishing messages.
+	confirmMode bool
 
 	// middlewares holds slice of middlewares to run before or after the client
 	// sends a request.
@@ -145,11 +148,11 @@ func NewClient(url string) *Client {
 			byDeliveryTag:   make(map[uint64]*Request),
 			byCorrelationID: make(map[string]*Request),
 		},
-		replyToQueueName: "reply-to-" + uuid.New().String(),
-		middlewares:      []ClientMiddlewareFunc{},
-		timeout:          time.Second * 10,
-		maxRetries:       10,
-		errorLog:         log.Printf, // use the standard logger default.
+		name:        "amqprpc-client",
+		middlewares: []ClientMiddlewareFunc{},
+		timeout:     time.Second * 10,
+		maxRetries:  10,
+		errorLog:    log.Printf, // use the standard logger default.
 		//nolint:revive // Keep variables for clarity
 		debugLog: func(format string, args ...interface{}) {}, // don't print anything default.
 	}
@@ -177,6 +180,14 @@ finished executing.
 */
 func (c *Client) OnStarted(f OnStartedFunc) {
 	c.onStarteds = append(c.onStarteds, f)
+}
+
+// WithName sets the name of the client, it will be used the creation of the
+// reply-to queue, consumer tags and connection names.
+func (c *Client) WithName(name string) *Client {
+	c.name = name
+
+	return c
 }
 
 // WithDialConfig sets the dial config used for the client.
@@ -214,26 +225,18 @@ func (c *Client) WithDebugLogger(f LogFunc) *Client {
 	return c
 }
 
-// WithQueueDeclareSettings will set the settings used when declaring queues
-// for the client globally.
-func (c *Client) WithQueueDeclareSettings(s QueueDeclareSettings) *Client {
-	c.queueDeclareSettings = s
+// WithReplyToQueueDeclareArgs will set the settings used when declaring the
+// reply-to queue.
+func (c *Client) WithReplyToQueueDeclareArgs(args amqp.Table) *Client {
+	c.replyToQueueDeclareArgs = args
 
 	return c
 }
 
-// WithConsumeSettings will set the settings used when consuming in the client
-// globally.
-func (c *Client) WithConsumeSettings(s ConsumeSettings) *Client {
-	c.consumeSettings = s
-
-	return c
-}
-
-// WithPublishSettings will set the client publishing settings when publishing
-// messages.
-func (c *Client) WithPublishSettings(s PublishSettings) *Client {
-	c.publishSettings = s
+// WithReplyToConsumerArgs will set the consumer args used when the client
+// starts its reply-to consumer.
+func (c *Client) WithReplyToConsumerArgs(args amqp.Table) *Client {
+	c.replyToConsumerArgs = args
 
 	return c
 }
@@ -242,7 +245,7 @@ func (c *Client) WithPublishSettings(s PublishSettings) *Client {
 // to wait for confirmations, and if none arrives or the confirmation is marked
 // as Nack, Client#Send() returns a corresponding error.
 func (c *Client) WithConfirmMode(confirmMode bool) *Client {
-	c.publishSettings.ConfirmMode = confirmMode
+	c.confirmMode = confirmMode
 
 	return c
 }
@@ -273,31 +276,15 @@ func (c *Client) AddMiddleware(m ClientMiddlewareFunc) *Client {
 }
 
 func (c *Client) setDefaults() {
-	c.queueDeclareSettings = QueueDeclareSettings{
-		Durable:          true,
-		DeleteWhenUnused: false,
-		Exclusive:        false,
-		Args: map[string]interface{}{
-			// Ensure the queue is deleted automatically when it's unused for
-			// more than the set time. This is to ensure that messages that
-			// are in flight during a reconnect doesn't get lost (which might
-			// happen when using `DeleteWhenUnused`).
-			"x-expires": 1 * 60 * 1000, // 1 minute.
-		},
+	c.replyToQueueDeclareArgs = amqp.Table{
+		// Ensure the queue is deleted automatically when it's unused for
+		// more than the set time. This is to ensure that messages that
+		// are in flight during a reconnect doesn't get lost (which might
+		// happen when using when using the auto-delete flag).
+		"x-expires": 1 * 60 * 1000, // 1 minute.
 	}
 
-	c.consumeSettings = ConsumeSettings{
-		Consumer:  "",
-		AutoAck:   true,
-		Exclusive: true,
-		Args:      nil,
-	}
-
-	c.publishSettings = PublishSettings{
-		Mandatory:   true,
-		Immediate:   false,
-		ConfirmMode: true,
-	}
+	c.confirmMode = true
 }
 
 // runForever will connect amqp, setup all the amqp channels, run the publisher
@@ -309,6 +296,11 @@ func (c *Client) runForever() {
 		// Already running.
 		return
 	}
+
+	// Set the reply-to queue name to a unique name for this client and
+	// instance. This ensures that we can re-connect and re-use the same queue
+	// on any connection errors.
+	c.replyToQueueName = fmt.Sprintf("%s.reply-to-%s", c.name, uuid.NewString())
 
 	// Always assume that we don't want to stop initially.
 	atomic.StoreInt32(&c.wantStop, 0)
@@ -350,7 +342,7 @@ func (c *Client) runForever() {
 func (c *Client) runOnce() error {
 	c.debugLog("client: starting up...")
 
-	inputConn, outputConn, err := createConnections(c.url, c.dialconfig)
+	inputConn, outputConn, err := createConnections(c.url, c.name, c.dialconfig)
 	if err != nil {
 		return err
 	}
@@ -377,7 +369,7 @@ func (c *Client) runOnce() error {
 		return err
 	}
 
-	if c.publishSettings.ConfirmMode {
+	if c.confirmMode {
 		// ConfirmMode is wanted, tell the amqp-server that we want to enable
 		// confirm-mode on this channel and start the confirms consumer.
 		err = outputCh.Confirm(
@@ -460,8 +452,8 @@ func (c *Client) runPublisher(ouputChan *amqp.Channel) {
 				context.Background(),
 				request.Exchange,
 				request.RoutingKey,
-				c.publishSettings.Mandatory,
-				c.publishSettings.Immediate,
+				request.Mandatory,
+				false, // immediate. not supported by RabbitMQ.
 				request.Publishing,
 			)
 			if err != nil {
@@ -478,7 +470,7 @@ func (c *Client) runPublisher(ouputChan *amqp.Channel) {
 				return
 			}
 
-			if !c.publishSettings.ConfirmMode {
+			if !c.confirmMode {
 				// We're not in confirm mode so we confirm that we have sent
 				// the request here.
 				c.confirmRequest(request)
@@ -656,13 +648,17 @@ func (c *Client) confirmRequest(request *Request) {
 // expect replies to come back. The method will stop consuming if the
 // underlying amqp channel is closed for any reason.
 func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
+	// RabbitMQ will soon no longer support what they call "non-exclusive
+	// transient queues". We want to support reconnects and so we cannot set
+	// the exclusive flag since that would delete the queue on automatically on disconnect.
+	// And so we must also set the durable flag to true.
 	queue, err := inChan.QueueDeclare(
 		c.replyToQueueName,
-		c.queueDeclareSettings.Durable,
-		c.queueDeclareSettings.DeleteWhenUnused,
-		c.queueDeclareSettings.Exclusive,
+		true,  // Durable needs to be true since we must be non-exclusive.
+		false, // Auto-delete, instead we set x-expires per default.
+		false, // Exclusive must be false since we must support reconnects.
 		false, // no-wait.
-		c.queueDeclareSettings.Args,
+		c.replyToQueueDeclareArgs,
 	)
 	if err != nil {
 		return err
@@ -670,12 +666,12 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 
 	messages, err := inChan.Consume(
 		queue.Name,
-		c.consumeSettings.Consumer,
-		c.consumeSettings.AutoAck,
-		c.consumeSettings.Exclusive,
+		"",    // consumer tag. Auto-generated by the server.
+		true,  // auto-ack. We don't support manual ack for the reply-to queue.
+		true,  // exclusive. We must be the only consumer.
 		false, // no-local.
 		false, // no-wait.
-		c.consumeSettings.Args,
+		c.replyToConsumerArgs,
 	)
 	if err != nil {
 		return err

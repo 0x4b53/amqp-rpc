@@ -1,6 +1,6 @@
-module github.com/0x4b53/amqp-rpc/v4
+module github.com/0x4b53/amqp-rpc/v5
 
-go 1.20
+go 1.23
 
 require (
 	github.com/google/uuid v1.6.0
