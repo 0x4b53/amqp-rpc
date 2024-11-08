@@ -2,7 +2,8 @@ package amqprpc
 
 import (
 	"io"
-	"log"
+	"log/slog"
+	"slices"
 	"testing"
 	"time"
 
@@ -14,11 +15,13 @@ func TestServerLogging(t *testing.T) {
 	reader, writer := io.Pipe()
 
 	go func() {
-		logger := log.New(writer, "TEST", log.LstdFlags)
+		logger := slog.New(slog.NewTextHandler(writer, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}))
+		logger = logger.With("my_attr", "TEST")
 
-		s := NewServer(testURL)
-		s.WithDebugLogger(logger.Printf)
-		s.WithErrorLogger(logger.Printf)
+		s := NewServer(testURL).
+			WithLogger(logger)
 
 		stop := startAndWait(s)
 		stop()
@@ -39,11 +42,16 @@ func TestClientLogging(t *testing.T) {
 	reader, writer := io.Pipe()
 
 	go func() {
-		logger := log.New(writer, "TEST", log.LstdFlags)
+		logger := slog.New(
+			slog.NewTextHandler(writer, &slog.HandlerOptions{
+				Level: slog.LevelDebug,
+			}),
+		).With(
+			"my_attr", "TEST",
+		)
 
 		c := NewClient("amqp://guest:guest@localhost:5672/")
-		c.WithDebugLogger(logger.Printf)
-		c.WithErrorLogger(logger.Printf)
+		c.WithLogger(logger)
 
 		_, err := c.Send(NewRequest().WithRoutingKey("foobar").WithTimeout(time.Millisecond))
 		c.Stop()
@@ -63,11 +71,12 @@ func TestClientLogging(t *testing.T) {
 	assert.Contains(t, string(buf), "TEST", "logs are prefixed with TEST")
 }
 
-func Test_stringifyForLog(t *testing.T) {
+func Test_slogAttrs(t *testing.T) {
 	headers := amqp.Table{
 		"foo": "bar",
 		"nested": amqp.Table{
 			"baz": 13,
+			"apa": 13,
 		},
 	}
 
@@ -105,40 +114,114 @@ func Test_stringifyForLog(t *testing.T) {
 	tests := []struct {
 		name string
 		item interface{}
-		want string
+		want []slog.Attr
 	}{
 		{
 			name: "delivery",
-			item: delivery,
-			want: "[Exchange=exchange, RoutingKey=routing_key, Type=type, CorrelationId=coorelation1, UserId=jane, Headers=[foo=bar, nested=[baz=13]]]",
+			item: &delivery,
+			want: []slog.Attr{
+				slog.String("correlation_id", "coorelation1"),
+				slog.String("exchange", "exchange"),
+				slog.Bool("redelivered", false),
+				slog.String("routing_key", "routing_key"),
+				slog.String("type", "type"),
+				slog.String("user_id", "jane"),
+				slog.Group("headers",
+					slog.String("foo", "bar"),
+					slog.Group("nested",
+						slog.String("baz", "13"),
+						slog.String("apa", "13"),
+					),
+				),
+			},
 		},
 		{
 			name: "request",
-			item: request,
-			want: "[Exchange=exchange, RoutingKey=routing_key, Publishing=[CorrelationID=coorelation1, AppId=amqprpc, UserId=jane, Headers=[foo=bar, nested=[baz=13]]]]",
+			item: &request,
+			want: []slog.Attr{
+				slog.String("exchange", "exchange"),
+				slog.Bool("Reply", false),
+				slog.String("routing_key", "routing_key"),
+				slog.Group("publishing",
+					slog.String("correlation_id", "coorelation1"),
+					slog.String("user_id", "jane"),
+					slog.String("app_id", "amqprpc"),
+					slog.Group("headers",
+						slog.String("foo", "bar"),
+						slog.Group("nested",
+							slog.String("apa", "13"),
+							slog.String("baz", "13"),
+						),
+					),
+				),
+			},
 		},
 		{
 			name: "return",
-			item: ret,
-			want: "[ReplyCode=412, ReplyText=NO_ROUTE, Exchange=exchange, RoutingKey=routing_key, CorrelationID=coorelation1, AppId=amqprpc, UserId=jane, Headers=[foo=bar, nested=[baz=13]]]",
+			item: &ret,
+			want: []slog.Attr{
+				slog.String("correlation_id", "coorelation1"),
+				slog.Uint64("reply_code", 412),
+				slog.String("reply_text", "NO_ROUTE"),
+				slog.String("exchange", "exchange"),
+				slog.String("routing_key", "routing_key"),
+				slog.String("app_id", "amqprpc"),
+				slog.String("user_id", "jane"),
+				slog.Group("headers",
+					slog.String("foo", "bar"),
+					slog.Group("nested",
+						slog.String("baz", "13"),
+						slog.String("apa", "13"),
+					),
+				),
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var got string
+			var got []slog.Attr
 
 			switch v := tt.item.(type) {
-			case amqp.Delivery:
-				got = stringifyDeliveryForLog(&v)
-				assert.Equal(t, "[nil]", stringifyDeliveryForLog(nil))
-			case amqp.Return:
-				got = stringifyReturnForLog(v)
-			case Request:
-				got = stringifyRequestForLog(&v)
-				assert.Equal(t, "[nil]", stringifyRequestForLog(nil))
+			case *amqp.Delivery:
+				got = slogAttrsForDelivery(v)
+
+				assert.Nil(t, slogAttrsForDelivery(nil))
+			case *amqp.Return:
+				got = slogAttrsForReturn(v)
+
+				assert.Nil(t, slogAttrsForDelivery(nil))
+			case *Request:
+				got = slogAttrsForRequest(v)
+
+				assert.Nil(t, slogAttrsForRequest(nil))
+			default:
+				t.Fatalf("unknown type: %T", v)
 			}
 
-			assert.Equal(t, tt.want, got)
+			slogAttrsSort(tt.want)
+			slogAttrsSort(got)
+
+			assert.ElementsMatch(t, tt.want, got)
 		})
+	}
+}
+
+func slogAttrsSort(attrs []slog.Attr) {
+	slices.SortFunc(attrs, func(a, b slog.Attr) int {
+		if a.Key < b.Key {
+			return -1
+		}
+
+		if a.Key > b.Key {
+			return 1
+		}
+
+		return 0
+	})
+
+	for _, attr := range attrs {
+		if attr.Value.Kind() == slog.KindGroup {
+			slogAttrsSort(attr.Value.Group())
+		}
 	}
 }

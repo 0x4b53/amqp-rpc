@@ -1,183 +1,267 @@
 package amqprpc
 
 import (
-	"fmt"
-	"sort"
-	"strings"
+	"log/slog"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-/*
-LogFunc is used for logging in amqp-rpc. It makes it possible to define your own logging.
-
-Here is an example where the logger from the log package is used:
-
-	debugLogger := log.New(os.Stdout, "DEBUG - ", log.LstdFlags)
-	errorLogger := log.New(os.Stdout, "ERROR - ", log.LstdFlags)
-
-	server := NewServer(url)
-	server.WithErrorLogger(errorLogger.Printf)
-	server.WithDebugLogger(debugLogger.Printf)
-
-It can also be used with for example a Logrus logger:
-
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	logger.Formatter = &logrus.JSONFormatter{}
-
-	s.WithErrorLogger(logger.Warnf)
-	s.WithDebugLogger(logger.Debugf)
-
-	client := NewClient(url)
-	client.WithErrorLogger(logger.Errorf)
-	client.WithDebugLogger(logger.Debugf)
-*/
-type LogFunc func(format string, args ...interface{})
-
-func stringifyTableForLog(v amqp.Table) string {
+// slogAttrsForTable returns a slice of slog.Attr from an amqp.Table. This will
+// NOT filter out sensitive information. That should be done in a custom
+// slog.Handler together with the users own application code.
+func slogAttrsForTable(v amqp.Table) []slog.Attr {
 	if len(v) == 0 {
-		return "[]"
+		return nil
 	}
 
-	vals := []string{}
+	attrs := []slog.Attr{}
 
 	for key, val := range v {
 		if inner, ok := val.(amqp.Table); ok {
-			val = stringifyTableForLog(inner)
-		}
+			attrs = append(attrs, slogGroupFor(
+				key,
+				slogAttrsForTable(inner),
+			))
 
-		strVal := fmt.Sprintf("%v", val)
-
-		if strVal == "" {
 			continue
 		}
 
-		vals = append(vals, fmt.Sprintf("%s=%s", key, strVal))
+		attrs = append(attrs, slog.Any(key, val))
 	}
 
-	sort.Strings(vals)
-
-	return fmt.Sprintf("[%s]", strings.Join(vals, ", "))
+	return attrs
 }
 
-func stringifyDeliveryForLog(v *amqp.Delivery) string {
+func slogAttrsForDelivery(v *amqp.Delivery) []slog.Attr {
 	if v == nil {
-		return "[nil]"
+		return nil
 	}
 
-	vals := []string{}
-
-	if v.Exchange != "" {
-		vals = append(vals, fmt.Sprintf("Exchange=%s", v.Exchange))
+	vals := []slog.Attr{
+		slog.String("correlation_id", v.CorrelationId),
+		slog.String("exchange", v.Exchange),
+		slog.Bool("redelivered", v.Redelivered),
 	}
 
 	if v.RoutingKey != "" {
-		vals = append(vals, fmt.Sprintf("RoutingKey=%s", v.RoutingKey))
+		vals = append(vals, slog.String("routing_key", v.RoutingKey))
+	}
+
+	if v.ContentType != "" {
+		vals = append(vals, slog.String("content_type", v.ContentType))
+	}
+
+	if v.ContentEncoding != "" {
+		vals = append(vals, slog.String("content_encoding", v.ContentEncoding))
+	}
+
+	if v.DeliveryMode != 0 {
+		vals = append(vals, slog.Uint64("delivery_mode", uint64(v.DeliveryMode)))
+	}
+
+	if v.Priority != 0 {
+		vals = append(vals, slog.Uint64("priority", uint64(v.Priority)))
+	}
+
+	if v.ReplyTo != "" {
+		vals = append(vals, slog.String("reply_to", v.ReplyTo))
+	}
+
+	if v.Expiration != "" {
+		vals = append(vals, slog.String("expiration", v.Expiration))
+	}
+
+	if v.MessageId != "" {
+		vals = append(vals, slog.String("message_id", v.MessageId))
+	}
+
+	if !v.Timestamp.IsZero() {
+		vals = append(vals, slog.Time("timestamp", v.Timestamp))
 	}
 
 	if v.Type != "" {
-		vals = append(vals, fmt.Sprintf("Type=%s", v.Type))
-	}
-
-	if v.CorrelationId != "" {
-		vals = append(vals, fmt.Sprintf("CorrelationId=%s", v.CorrelationId))
-	}
-
-	if v.AppId != "" {
-		vals = append(vals, fmt.Sprintf("AppId=%s", v.AppId))
+		vals = append(vals, slog.String("type", v.Type))
 	}
 
 	if v.UserId != "" {
-		vals = append(vals, fmt.Sprintf("UserId=%s", v.UserId))
-	}
-
-	if len(v.Headers) > 0 {
-		vals = append(vals, fmt.Sprintf("Headers=%s", stringifyTableForLog(v.Headers)))
-	}
-
-	return fmt.Sprintf("[%s]", strings.Join(vals, ", "))
-}
-
-func stringifyPublishingForLog(v amqp.Publishing) string {
-	vals := []string{}
-
-	if v.CorrelationId != "" {
-		vals = append(vals, fmt.Sprintf("CorrelationID=%s", v.CorrelationId))
-	}
-
-	if v.Type != "" {
-		vals = append(vals, fmt.Sprintf("Type=%s", v.Type))
+		vals = append(vals, slog.String("user_id", v.UserId))
 	}
 
 	if v.AppId != "" {
-		vals = append(vals, fmt.Sprintf("AppId=%s", v.AppId))
+		vals = append(vals, slog.String("app_id", v.AppId))
 	}
 
-	if v.UserId != "" {
-		vals = append(vals, fmt.Sprintf("UserId=%s", v.UserId))
+	if v.ConsumerTag != "" {
+		vals = append(vals, slog.String("consumer_tag", v.ConsumerTag))
 	}
 
-	if len(v.Headers) > 0 {
-		vals = append(vals, fmt.Sprintf("Headers=%s", stringifyTableForLog(v.Headers)))
+	if v.DeliveryTag != 0 {
+		vals = append(vals, slog.Uint64("delivery_tag", v.DeliveryTag))
 	}
 
-	return fmt.Sprintf("[%s]", strings.Join(vals, ", "))
+	if v.Headers != nil {
+		vals = append(vals, slogGroupFor("headers", slogAttrsForTable(v.Headers)))
+	}
+
+	return vals
 }
 
-func stringifyRequestForLog(v *Request) string {
+func slogAttrsForPublishing(v *amqp.Publishing) []slog.Attr {
 	if v == nil {
-		return "[nil]"
+		return nil
 	}
 
-	vals := []string{}
-
-	if v.Exchange != "" {
-		vals = append(vals, fmt.Sprintf("Exchange=%s", v.Exchange))
+	vals := []slog.Attr{
+		slog.String("correlation_id", v.CorrelationId),
 	}
 
-	if v.RoutingKey != "" {
-		vals = append(vals, fmt.Sprintf("RoutingKey=%s", v.RoutingKey))
+	if v.ContentType != "" {
+		vals = append(vals, slog.String("content_type", v.ContentType))
 	}
 
-	vals = append(vals, fmt.Sprintf("Publishing=%s", stringifyPublishingForLog(v.Publishing)))
-
-	return fmt.Sprintf("[%s]", strings.Join(vals, ", "))
-}
-
-func stringifyReturnForLog(v amqp.Return) string {
-	vals := []string{
-		fmt.Sprintf("ReplyCode=%d", v.ReplyCode),
-		fmt.Sprintf("ReplyText=%s", v.ReplyText),
+	if v.ContentEncoding != "" {
+		vals = append(vals, slog.String("content_encoding", v.ContentEncoding))
 	}
 
-	if v.Exchange != "" {
-		vals = append(vals, fmt.Sprintf("Exchange=%s", v.Exchange))
+	if v.DeliveryMode != 0 {
+		vals = append(vals, slog.Uint64("delivery_mode", uint64(v.DeliveryMode)))
 	}
 
-	if v.RoutingKey != "" {
-		vals = append(vals, fmt.Sprintf("RoutingKey=%s", v.RoutingKey))
+	if v.Priority != 0 {
+		vals = append(vals, slog.Uint64("priority", uint64(v.Priority)))
 	}
 
-	if v.CorrelationId != "" {
-		vals = append(vals, fmt.Sprintf("CorrelationID=%s", v.CorrelationId))
+	if v.ReplyTo != "" {
+		vals = append(vals, slog.String("reply_to", v.ReplyTo))
+	}
+
+	if v.Expiration != "" {
+		vals = append(vals, slog.String("expiration", v.Expiration))
+	}
+
+	if v.MessageId != "" {
+		vals = append(vals, slog.String("message_id", v.MessageId))
+	}
+
+	if !v.Timestamp.IsZero() {
+		vals = append(vals, slog.Time("timestamp", v.Timestamp))
 	}
 
 	if v.Type != "" {
-		vals = append(vals, fmt.Sprintf("Type=%s", v.Type))
-	}
-
-	if v.AppId != "" {
-		vals = append(vals, fmt.Sprintf("AppId=%s", v.AppId))
+		vals = append(vals, slog.String("type", v.Type))
 	}
 
 	if v.UserId != "" {
-		vals = append(vals, fmt.Sprintf("UserId=%s", v.UserId))
+		vals = append(vals, slog.String("user_id", v.UserId))
 	}
 
-	if len(v.Headers) > 0 {
-		vals = append(vals, fmt.Sprintf("Headers=%s", stringifyTableForLog(v.Headers)))
+	if v.AppId != "" {
+		vals = append(vals, slog.String("app_id", v.AppId))
 	}
 
-	return fmt.Sprintf("[%s]", strings.Join(vals, ", "))
+	if v.Headers != nil {
+		vals = append(vals, slogGroupFor("headers", slogAttrsForTable(v.Headers)))
+	}
+
+	return vals
+}
+
+func slogAttrsForRequest(v *Request) []slog.Attr {
+	if v == nil {
+		return nil
+	}
+
+	vals := []slog.Attr{
+		slog.String("exchange", v.Exchange),
+		slog.Bool("Reply", v.Reply),
+		slogGroupFor("publishing", slogAttrsForPublishing(&v.Publishing)),
+	}
+
+	if v.RoutingKey != "" {
+		vals = append(vals, slog.String("routing_key", v.RoutingKey))
+	}
+
+	if v.Mandatory {
+		vals = append(vals, slog.Bool("mandatory", v.Mandatory))
+	}
+
+	if v.Timeout > 0 {
+		vals = append(vals, slog.Duration("timeout", v.Timeout))
+	}
+
+	return vals
+}
+
+func slogAttrsForReturn(v *amqp.Return) []slog.Attr {
+	if v == nil {
+		return nil
+	}
+
+	vals := []slog.Attr{
+		slog.String("correlation_id", v.CorrelationId),
+		slog.Uint64("reply_code", uint64(v.ReplyCode)),
+		slog.String("reply_text", v.ReplyText),
+		slog.String("exchange", v.Exchange),
+	}
+
+	if v.RoutingKey != "" {
+		vals = append(vals, slog.String("routing_key", v.RoutingKey))
+	}
+
+	if v.ContentType != "" {
+		vals = append(vals, slog.String("content_type", v.ContentType))
+	}
+
+	if v.ContentEncoding != "" {
+		vals = append(vals, slog.String("content_encoding", v.ContentEncoding))
+	}
+
+	if v.DeliveryMode != 0 {
+		vals = append(vals, slog.Uint64("delivery_mode", uint64(v.DeliveryMode)))
+	}
+
+	if v.Priority != 0 {
+		vals = append(vals, slog.Uint64("priority", uint64(v.Priority)))
+	}
+
+	if v.ReplyTo != "" {
+		vals = append(vals, slog.String("reply_to", v.ReplyTo))
+	}
+
+	if v.Expiration != "" {
+		vals = append(vals, slog.String("expiration", v.Expiration))
+	}
+
+	if v.MessageId != "" {
+		vals = append(vals, slog.String("message_id", v.MessageId))
+	}
+
+	if !v.Timestamp.IsZero() {
+		vals = append(vals, slog.Time("timestamp", v.Timestamp))
+	}
+
+	if v.Type != "" {
+		vals = append(vals, slog.String("type", v.Type))
+	}
+
+	if v.UserId != "" {
+		vals = append(vals, slog.String("user_id", v.UserId))
+	}
+
+	if v.AppId != "" {
+		vals = append(vals, slog.String("app_id", v.AppId))
+	}
+
+	if v.Headers != nil {
+		vals = append(vals, slogGroupFor("headers", slogAttrsForTable(v.Headers)))
+	}
+
+	return vals
+}
+
+func slogGroupFor(key string, attrs []slog.Attr) slog.Attr {
+	return slog.Attr{
+		Key:   key,
+		Value: slog.GroupValue(attrs...),
+	}
 }

@@ -186,8 +186,6 @@ func closeConnections(names ...string) {
 
 func testServer() *Server {
 	server := NewServer(testURL).
-		WithDebugLogger(testLogFunc("debug")).
-		WithErrorLogger(testLogFunc("ERROR")).
 		WithDialConfig(
 			amqp.Config{
 				Properties: amqp.Table{
@@ -205,8 +203,6 @@ func testServer() *Server {
 
 func testClient() *Client {
 	return NewClient(testURL).
-		WithDebugLogger(testLogFunc("debug")).
-		WithErrorLogger(testLogFunc("ERROR")).
 		WithDialConfig(
 			amqp.Config{
 				Properties: amqp.Table{
@@ -244,13 +240,4 @@ func initTest(t *testing.T) (server *Server, client *Client, start, stop func())
 	}
 
 	return
-}
-
-func testLogFunc(prefix string) LogFunc {
-	startTime := time.Now()
-
-	return func(format string, args ...interface{}) {
-		format = fmt.Sprintf("[%s] %s: %s\n", prefix, time.Since(startTime).String(), format)
-		fmt.Printf(format, args...)
-	}
 }

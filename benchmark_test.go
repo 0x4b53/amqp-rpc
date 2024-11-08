@@ -2,7 +2,6 @@ package amqprpc
 
 import (
 	"context"
-	"log"
 	"testing"
 	"time"
 
@@ -19,13 +18,11 @@ func Benchmark(b *testing.B) {
 	time.Sleep(1 * time.Second)
 
 	confirmingClient := NewClient(testURL).
-		WithTimeout(3 * time.Minute).
-		WithErrorLogger(log.Printf)
+		WithTimeout(3 * time.Minute)
 
 	defer confirmingClient.Stop()
 
 	fastClient := NewClient(testURL).
-		WithErrorLogger(log.Printf).
 		WithTimeout(3 * time.Minute).
 		WithConfirmMode(false)
 

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"log/slog"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
@@ -28,8 +29,12 @@ func PanicRecovery(onRecovery func(interface{}, context.Context, *amqprpc.Respon
 // PanicRecoveryLogging is a middleware that will recover any panics caused by
 // a handler down the middleware chain. If a panic happens the value will be
 // logged to the provided logFunc.
-func PanicRecoveryLogging(logFunc amqprpc.LogFunc) amqprpc.ServerMiddlewareFunc {
+func PanicRecoveryLogging(logger *slog.Logger) amqprpc.ServerMiddlewareFunc {
 	return PanicRecovery(func(r interface{}, _ context.Context, _ *amqprpc.ResponseWriter, d amqp.Delivery) {
-		logFunc("recovered (%s): %v", d.CorrelationId, r)
+		logger.Error(
+			"panic recovered",
+			slog.Any("error", r),
+			slog.String("correlation_id", d.CorrelationId),
+		)
 	})
 }
