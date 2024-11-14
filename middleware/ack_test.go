@@ -3,7 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -65,7 +65,7 @@ func TestAckDelivery(t *testing.T) {
 			// Block until ready.
 			<-isListening
 
-			handler := AckDelivery(OnAckErrorSendOnChannel(log.Printf, ch))(tt.handler)
+			handler := AckDelivery(OnAckErrorSendOnChannel(slog.Default(), ch))(tt.handler)
 
 			rw := amqprpc.ResponseWriter{Publishing: &amqp.Publishing{}}
 			d := amqp.Delivery{Acknowledger: acknowledger, CorrelationId: "id-1234"}

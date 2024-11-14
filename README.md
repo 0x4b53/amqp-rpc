@@ -88,8 +88,7 @@ can be changed by calling chainable methods.
 
 ```go
 server := NewServer("amqp://guest:guest@localhost:5672").
-    WithDebugLogger(log.Printf).
-    WithErrorLogger(log.Printf).
+    WithLogger(logger).
     WithTLS(&tls.Config{})
 ```
 
@@ -115,10 +114,10 @@ request := NewRequest().
 
 response, err := client.Send(request)
 if err != nil {
-    log.Fatal(err.Error())
+    slog.Error(err.Error())
 }
 
-log.Print(string(response.Body))
+slog.Info(string(response.Body))
 ```
 
 The client will not connect while being created, instead this happens when the
@@ -139,8 +138,7 @@ Example of available methods for chaining.
 
 ```go
 client := NewClient("amqp://guest:guest@localhost:5672").
-    WithDebugLogger(log.Printf).
-    WithErrorLogger(log.Printf).
+    WithLogger(logger).
     WithDialConfig(amqp.Config{}).
     WithTLS(&tls.Config{}).
     WithReplyToConsumerArgs(amqp.Table{}).
@@ -399,24 +397,30 @@ server.ListenAndServe()
 
 ## Logging
 
-You can specify two optional loggers for debugging and errors or unexpected
-behaviour. By default only error logging is turned on and is logged via the log
-package's standard logging.
+You can specify your own `slog.Logger` instance. By default amqp-rpc will log
+errors using the logger from `slog.Default()`. Some logs will contain data
+contained in a `amqp.Delivery` or `amqp.Publishing`, including any headers. If
+you want to avoid logging some of the fields you can use an `slog.Handler` to
+filter out the fields you don't want to log.
 
-You can provide your own logging function for both error and debug on both the
-client and the server.
+The library will log using two different levels: `slog.LevelDebug` and
+`slog.LevelInfo`.
+
+If you want to use something other than `slog` for logging, you can implement a
+`slog.Handler` wrapper that wraps your preferred logging implementation.
 
 ```go
-debugLogger := log.New(os.Stdout, "DEBUG - ", log.LstdFlags)
-errorLogger := log.New(os.Stdout, "ERROR - ", log.LstdFlags)
+logger := slog.New(
+	slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}),
+)
 
 server := NewServer(url).
-    WithErrorLogger(errorLogger.Printf).
-    WithDebugLogger(debugLogger.Printf)
+    WithLogger(logger)
 
 client := NewClient(url).
-    WithErrorLogger(errorLogger.Printf).
-    WithDebugLogger(debugLogger.Printf)
+    WithLogger(logger)
 ```
 
 This is perfect when using a logger which supports debugging as a separate

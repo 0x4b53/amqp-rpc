@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -70,14 +70,8 @@ type Server struct {
 	// isRunning is 1 when the server is running.
 	isRunning int32
 
-	// errorLog specifies an optional logger for amqp errors, unexpected behavior etc.
-	// If nil, logging is done via the log package's standard logger.
-	errorLog LogFunc
-
-	// debugLog specifies an optional logger for debugging, this logger will
-	// print most of what is happening internally.
-	// If nil, logging is not done.
-	debugLog LogFunc
+	// logger is the logger used for logging.
+	logger *slog.Logger
 }
 
 // NewServer will return a pointer to a new Server.
@@ -90,13 +84,14 @@ func NewServer(url string) *Server {
 		dialconfig: amqp.Config{
 			Dial: amqp.DefaultDial(2 * time.Second),
 		},
-		errorLog: log.Printf, // use the standard logger default.
 		//nolint:revive // Keep variables for clarity
-		debugLog: func(format string, args ...interface{}) {}, // don't print anything default.
 		// We ensure to always create a channel so we can call `Restart` without
 		// blocking.
 		restartChan: make(chan struct{}),
 	}
+
+	// use the standard logger default.
+	server.WithLogger(slog.Default())
 
 	return &server
 }
@@ -141,16 +136,13 @@ func (s *Server) WithTLS(tlsConfig *tls.Config) *Server {
 	return s
 }
 
-// WithErrorLogger sets the logger to use for error logging.
-func (s *Server) WithErrorLogger(f LogFunc) *Server {
-	s.errorLog = f
-
-	return s
-}
-
-// WithDebugLogger sets the logger to use for debug logging.
-func (s *Server) WithDebugLogger(f LogFunc) *Server {
-	s.debugLog = f
+// WithLogger sets the logger to use for error and debug logging. By default
+// the library will log errors using the logger from [slog.Default]. Some logs
+// will contain data contained in a [amqp.Delivery] or [amqp.Publishing],
+// including any headers. If you want to avoid logging some of the fields you
+// can use an [slog.Handler] to filter out the fields you don't want to log.
+func (s *Server) WithLogger(logger *slog.Logger) *Server {
+	s.logger = logger.With("component", "amqprpc-server")
 
 	return s
 }
@@ -220,12 +212,15 @@ func (s *Server) ListenAndServe() {
 		// connection problems and have call Stop(). If the channel isn't
 		// read/closed within 500ms, retry.
 		if err != nil {
-			s.errorLog("server: got error: %v, will reconnect in %v second(s)", err, 0.5)
+			s.logger.Error("got error, will reconnect",
+				"error", err,
+				"eta", "0.5s",
+			)
 
 			select {
 			case _, ok := <-s.stopChan:
 				if !ok {
-					s.debugLog("server: the stopChan was triggered in a reconnect loop, exiting")
+					s.logger.Debug("the stopChan was triggered in a reconnect loop, exiting")
 					break
 				}
 			case <-time.After(500 * time.Millisecond):
@@ -239,12 +234,12 @@ func (s *Server) ListenAndServe() {
 			// then we re-create it here.
 			s.responses = make(chan processedRequest)
 
-			s.debugLog("server: listener restarting")
+			s.logger.Debug("restarting listener")
 
 			continue
 		}
 
-		s.debugLog("server: listener exiting gracefully")
+		s.logger.Debug("listener exiting gracefully")
 
 		break
 	}
@@ -253,7 +248,7 @@ func (s *Server) ListenAndServe() {
 }
 
 func (s *Server) listenAndServe() (bool, error) {
-	s.debugLog("server: starting listener: %s", s.url)
+	s.logger.Debug("starting listener", slog.String("url", s.url))
 
 	// We are using two different connections here because:
 	// "It's advisable to use separate connections for Channel.Publish and
@@ -317,9 +312,9 @@ func (s *Server) listenAndServe() (bool, error) {
 	}
 
 	if shouldRestart {
-		s.debugLog("server: restarting server")
+		s.logger.Debug("restarting server")
 	} else {
-		s.debugLog("server: gracefully shutting down")
+		s.logger.Debug("gracefully shutting down")
 	}
 
 	// 1. Tell amqp we want to shut down by canceling all the consumers.
@@ -407,7 +402,10 @@ func (s *Server) runHandler(
 	wg.Add(1)
 	defer wg.Done()
 
-	s.debugLog("server: waiting for messages on queue '%s'", queueName)
+	s.logger.Debug(
+		"waiting for messages on queue",
+		slog.String("queue", queueName),
+	)
 
 	for delivery := range deliveries {
 		// Add one delta to the wait group each time a delivery is handled so
@@ -416,7 +414,11 @@ func (s *Server) runHandler(
 		// a delivery is finished even though we handle them concurrently.
 		wg.Add(1)
 
-		s.debugLog("server: got delivery on queue %v correlation id %v", queueName, delivery.CorrelationId)
+		s.logger.Debug(
+			"got delivery",
+			slog.String("queue", queueName),
+			slog.String("correlation_id", delivery.CorrelationId),
+		)
 
 		rw := ResponseWriter{
 			Publishing: &amqp.Publishing{
@@ -444,7 +446,10 @@ func (s *Server) runHandler(
 		}(delivery)
 	}
 
-	s.debugLog("server: stopped waiting for messages on queue '%s'", queueName)
+	s.logger.Debug(
+		"stopped waiting for messages on queue",
+		slog.String("queue", queueName),
+	)
 }
 
 func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
@@ -452,9 +457,10 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for response := range s.responses {
-		s.debugLog(
-			"server: publishing response to %s, correlation id: %s",
-			response.replyTo, response.publishing.CorrelationId,
+		s.logger.Debug(
+			"publishing response",
+			slog.String("reply_to", response.replyTo),
+			slog.String("correlation_id", response.replyTo),
 		)
 
 		err := outCh.PublishWithContext(
@@ -471,10 +477,13 @@ func (s *Server) responder(outCh *amqp.Channel, wg *sync.WaitGroup) {
 
 			// We resend the response here so that other running goroutines
 			// that have a working outCh can pick up this response.
-			s.errorLog(
-				"server: retrying publishing response to %s, reason: %s, response: %s",
-				response.replyTo, err.Error(), stringifyPublishingForLog(response.publishing),
+			s.logger.Error(
+				"retrying publishing response",
+				slog.Any("error", err),
+				slog.String("reply_to", response.replyTo),
+				slogGroupFor("publishing", slogAttrsForPublishing(&response.publishing)),
 			)
+
 			s.responses <- response
 
 			return
@@ -512,7 +521,7 @@ func (s *Server) Restart() {
 	select {
 	case s.restartChan <- struct{}{}:
 	default:
-		s.debugLog("server: no listener on restartChan, ensure server is running")
+		s.logger.Debug("no listener on restartChan, ensure server is running")
 	}
 }
 

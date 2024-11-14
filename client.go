@@ -5,7 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -109,15 +109,7 @@ type Client struct {
 	// wantStop tells the runForever function to exit even on connection errors.
 	wantStop int32
 
-	// errorLog specifies an optional logger for amqp errors, unexpected
-	// behavior etc. If nil, logging is done via the log package's standard
-	// logger.
-	errorLog LogFunc
-
-	// debugLog specifies an optional logger for debugging, this logger will
-	// print most of what is happening internally.
-	// If nil, logging is not done.
-	debugLog LogFunc
+	logger *slog.Logger
 
 	// Sender is the main send function called after all middlewares has been
 	// chained and called. This field can be overridden to simplify testing.
@@ -152,10 +144,10 @@ func NewClient(url string) *Client {
 		middlewares: []ClientMiddlewareFunc{},
 		timeout:     time.Second * 10,
 		maxRetries:  10,
-		errorLog:    log.Printf, // use the standard logger default.
-		//nolint:revive // Keep variables for clarity
-		debugLog: func(format string, args ...interface{}) {}, // don't print anything default.
 	}
+
+	// use the standard logger default.
+	c.WithLogger(slog.Default())
 
 	c.Sender = c.send
 
@@ -211,16 +203,13 @@ func (c *Client) WithTLS(tlsConfig *tls.Config) *Client {
 	return c
 }
 
-// WithErrorLogger sets the logger to use for error logging.
-func (c *Client) WithErrorLogger(f LogFunc) *Client {
-	c.errorLog = f
-
-	return c
-}
-
-// WithDebugLogger sets the logger to use for debug logging.
-func (c *Client) WithDebugLogger(f LogFunc) *Client {
-	c.debugLog = f
+// WithLogger sets the logger to use for error and debug logging. By default
+// the library will log errors using the logger from [slog.Default]. Some logs
+// will contain data contained in a [amqp.Delivery] or [amqp.Publishing],
+// including any headers. If you want to avoid logging some of the fields you
+// can use an [slog.Handler] to filter out the fields you don't want to log.
+func (c *Client) WithLogger(logger *slog.Logger) *Client {
+	c.logger = logger.With("component", "amqprpc-client")
 
 	return c
 }
@@ -310,20 +299,27 @@ func (c *Client) runForever() {
 
 	go func() {
 		for {
-			c.debugLog("client: connecting...")
+			c.logger.Debug("connecting...")
 
 			err := c.runOnce()
 			if err == nil {
-				c.debugLog("client: finished gracefully")
+				c.logger.Debug("finished gracefully")
 				break
 			}
 
 			if atomic.LoadInt32(&c.wantStop) == 1 {
-				c.debugLog("client: finished with error %s", err.Error())
+				c.logger.Error("finished with error",
+					slog.Any("error", err),
+				)
+
 				break
 			}
 
-			c.errorLog("client: got error: %s, will reconnect in %v second(s)", err, 0.5)
+			c.logger.Error("got error: will reconnect",
+				slog.Any("error", err),
+				slog.String("eta", "0.5s"),
+			)
+
 			time.Sleep(500 * time.Millisecond)
 		}
 
@@ -340,7 +336,7 @@ func (c *Client) runForever() {
 // amqp error if the underlying connection or socket isn't gracefully closed.
 // It will also block until the connection is gone.
 func (c *Client) runOnce() error {
-	c.debugLog("client: starting up...")
+	c.logger.Debug("starting up...")
 
 	inputConn, outputConn, err := createConnections(c.url, c.name, c.dialconfig)
 	if err != nil {
@@ -407,7 +403,7 @@ func (c *Client) runOnce() error {
 // is closed for any reason, and when this happens the messages will be put back
 // in chan requests unless we have retried to many times.
 func (c *Client) runPublisher(ouputChan *amqp.Channel) {
-	c.debugLog("client: running publisher...")
+	c.logger.Debug("running publisher...")
 
 	// Monitor the closing of this channel. We need to do this in a separate,
 	// goroutine to ensure we won't get a deadlock inside the select below
@@ -428,7 +424,7 @@ func (c *Client) runPublisher(ouputChan *amqp.Channel) {
 		case <-onClose:
 			// The channels for publishing responses was closed, once the
 			// client has started again. This loop will be restarted.
-			c.debugLog("client: publisher stopped after channel was closed")
+			c.logger.Debug("publisher stopped after channel was closed")
 			return
 		case request := <-c.requests:
 			// Set the ReplyTo if needed, or ensure it's empty if it's not.
@@ -438,7 +434,9 @@ func (c *Client) runPublisher(ouputChan *amqp.Channel) {
 				request.Publishing.ReplyTo = ""
 			}
 
-			c.debugLog("client: publishing %s", request.Publishing.CorrelationId)
+			c.logger.Debug("publishing request",
+				slog.String("correlation_id", request.Publishing.CorrelationId),
+			)
 
 			// Setup the delivery tag for this request.
 			nextDeliveryTag++
@@ -461,10 +459,10 @@ func (c *Client) runPublisher(ouputChan *amqp.Channel) {
 
 				c.retryRequest(request, err)
 
-				c.errorLog(
-					"client: publisher stopped because of error: %s, request: %s",
-					err.Error(),
-					stringifyRequestForLog(request),
+				c.logger.Error(
+					"publisher stopped because of error",
+					slog.Any("error", err),
+					slogGroupFor("request", slogAttrsForRequest(request)),
 				)
 
 				return
@@ -492,10 +490,10 @@ func (c *Client) runPublisher(ouputChan *amqp.Channel) {
 func (c *Client) retryRequest(request *Request, err error) {
 	if request.numRetries >= c.maxRetries {
 		// We have already retried too many times
-		c.errorLog(
-			"client: could not publish, giving up: reason: %s, %s",
-			err.Error(),
-			stringifyRequestForLog(request),
+		c.logger.Error(
+			"could not publish, giving up",
+			slog.Any("error", err),
+			slogGroupFor("request", slogAttrsForRequest(request)),
 		)
 
 		// We shouldn't wait for confirmations any more because they will never
@@ -511,15 +509,17 @@ func (c *Client) retryRequest(request *Request, err error) {
 	request.numRetries++
 
 	go func() {
-		c.debugLog("client: queuing request for retry: reason: %s, %s", err.Error(), stringifyRequestForLog(request))
+		c.logger.Debug("queuing request for retry",
+			slog.Any("error", err),
+			slogGroupFor("request", slogAttrsForRequest(request)),
+		)
 
 		select {
 		case c.requests <- request:
 		case <-request.AfterTimeout():
-			c.errorLog(
-				"client: request timed out while waiting for retry reason: %s, %s",
-				err.Error(),
-				stringifyRequestForLog(request),
+			c.logger.Debug("request timed out while waiting for retry",
+				slog.Any("error", err),
+				slogGroupFor("request", slogAttrsForRequest(request)),
 			)
 		}
 	}()
@@ -541,11 +541,21 @@ func (c *Client) runConfirmsConsumer(confirms chan amqp.Confirmation, returns ch
 				// This could happen if we stop waiting for requests to return due
 				// to a timeout. But since returns are normally very fast that
 				// would mean that something isn't quite right on the amqp server.
-				c.errorLog("client: got return for unknown request: %s", stringifyReturnForLog(ret))
+				// Note: We use LogAttrs here because .Error takes a variadic
+				// []any slice.
+				c.logger.LogAttrs(
+					context.Background(),
+					slog.LevelError,
+					"got return for unknown request",
+					slogAttrsForReturn(&ret)...,
+				)
+
 				continue
 			}
 
-			c.debugLog("client: publishing is returned by server: %s", ret.CorrelationId)
+			c.logger.Debug("publishing is returned by server",
+				slog.String("correlation_id", ret.CorrelationId),
+			)
 
 			request.returned = &ret
 
@@ -561,11 +571,17 @@ func (c *Client) runConfirmsConsumer(confirms chan amqp.Confirmation, returns ch
 				// would mean that something isn't quite right on the amqp server.
 				// Unfortunately there isn't any way of getting more information
 				// than the delivery tag from a confirmation.
-				c.errorLog("client: got confirmation of unknown request: %d", confirm.DeliveryTag)
+				c.logger.Error(
+					"got confirmation of unknown request",
+					slog.Uint64("delivery_tag", confirm.DeliveryTag),
+				)
+
 				continue
 			}
 
-			c.debugLog("client: confirming request %s", request.Publishing.CorrelationId)
+			c.logger.Debug("confirming request",
+				slog.String("correlation_id", request.Publishing.CorrelationId),
+			)
 
 			c.confirmRequest(request)
 
@@ -594,11 +610,6 @@ func (c *Client) runConfirmsConsumer(confirms chan amqp.Confirmation, returns ch
 			if !request.Reply {
 				// The request isn't expecting a reply so we need give a nil
 				// response instead to signal that we're done.
-				c.debugLog(
-					"client: sending nil response after confirmation due to no reply wanted %s",
-					request.Publishing.CorrelationId,
-				)
-
 				c.respondToRequest(request, nil)
 			}
 		}
@@ -611,10 +622,10 @@ func (c *Client) respondToRequest(request *Request, response *amqp.Delivery) {
 	case request.response <- response:
 		return
 	case <-time.After(chanSendWaitTime):
-		c.errorLog(
-			"client: nobody is waiting for response on: %s, response: %s",
-			stringifyRequestForLog(request),
-			stringifyDeliveryForLog(response),
+		c.logger.Error(
+			"nobody is waiting for response",
+			slogGroupFor("request", slogAttrsForRequest(request)),
+			slogGroupFor("delivery", slogAttrsForDelivery(response)),
 		)
 	}
 }
@@ -625,10 +636,10 @@ func (c *Client) respondErrorToRequest(request *Request, err error) {
 	case request.errChan <- err:
 		return
 	case <-time.After(chanSendWaitTime):
-		c.errorLog(
-			"nobody is waiting for error on: %s, error: %s",
-			stringifyRequestForLog(request),
-			err.Error(),
+		c.logger.Error(
+			"nobody is waiting for error",
+			slog.Any("error", err),
+			slogGroupFor("request", slogAttrsForRequest(request)),
 		)
 	}
 }
@@ -640,7 +651,10 @@ func (c *Client) confirmRequest(request *Request) {
 	case request.confirmed <- struct{}{}:
 		return
 	case <-time.After(chanSendWaitTime):
-		c.errorLog("nobody is waiting for confirmation on: %s", stringifyRequestForLog(request))
+		c.logger.Error(
+			"nobody is waiting for confirmation",
+			slogGroupFor("request", slogAttrsForRequest(request)),
+		)
 	}
 }
 
@@ -678,31 +692,39 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 	}
 
 	go func() {
-		c.debugLog("client: running replies consumer...")
+		c.logger.Debug("running replies consumer...")
 
 		for response := range messages {
 			request, ok := c.requestsMap.GetByCorrelationID(response.CorrelationId)
 			if !ok {
-				c.errorLog(
-					"client: could not find where to reply. CorrelationId: %s",
-					stringifyDeliveryForLog(&response),
+				// The request has probably timed out between when it was in the
+				// queue and when the user stopped waiting for it. We can safely
+				// log this as a debug message.
+				c.logger.Debug(
+					"could not find where to reply",
+					slogGroupFor("response", slogAttrsForDelivery(&response)),
 				)
 
 				continue
 			}
 
-			c.debugLog("client: forwarding reply %s", response.CorrelationId)
+			c.logger.Debug("forwarding reply",
+				slog.String("correlation_id", response.CorrelationId),
+			)
 
 			responseCopy := response
 
 			select {
 			case request.response <- &responseCopy:
 			case <-time.After(chanSendWaitTime):
-				c.errorLog("client: could not send to reply response chan: %s", stringifyRequestForLog(request))
+				c.logger.Error(
+					"nobody is waiting on response on request",
+					slogGroupFor("request", slogAttrsForRequest(request)),
+				)
 			}
 		}
 
-		c.debugLog("client: replies consumer is done")
+		c.logger.Debug("replies consumer is done")
 	}()
 
 	return nil
@@ -746,17 +768,22 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	r.startTimeout(c.timeout)
 	timeoutChan := r.AfterTimeout()
 
-	c.debugLog("client: queuing request %s", r.Publishing.CorrelationId)
+	c.logger.Debug("queuing request", slog.String("correlation_id", r.Publishing.CorrelationId))
 
 	select {
 	case c.requests <- r:
 		// successful send.
 	case <-timeoutChan:
-		c.debugLog("client: timeout while waiting for request queue %s", r.Publishing.CorrelationId)
+		c.logger.Debug("timeout while waiting for request queue %s",
+			slog.String("correlation_id", r.Publishing.CorrelationId),
+		)
+
 		return nil, fmt.Errorf("%w while waiting for request queue", ErrRequestTimeout)
 	}
 
-	c.debugLog("client: waiting for reply of %s", r.Publishing.CorrelationId)
+	c.logger.Debug("waiting for reply",
+		slog.String("correlation_id", r.Publishing.CorrelationId),
+	)
 
 	// We hang here until the request has been published (or when confirm-mode
 	// is on; confirmed).
@@ -764,7 +791,10 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	case <-r.confirmed:
 		// got confirmation.
 	case <-timeoutChan:
-		c.debugLog("client: timeout while waiting for request confirmation %s", r.Publishing.CorrelationId)
+		c.logger.Debug("timeout while waiting for request confirmation",
+			slog.String("correlation_id", r.Publishing.CorrelationId),
+		)
+
 		return nil, fmt.Errorf("%w while waiting for confirmation", ErrRequestTimeout)
 	}
 
@@ -772,15 +802,25 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// until a response is received and close the channel when it's read.
 	select {
 	case err := <-r.errChan:
-		c.debugLog("client: error for %s, %s", r.Publishing.CorrelationId, err.Error())
+		c.logger.Debug("error for request",
+			slog.Any("error", err),
+			slog.String("correlation_id", r.Publishing.CorrelationId),
+		)
+
 		return nil, err
 
 	case <-timeoutChan:
-		c.debugLog("client: timeout for %s", r.Publishing.CorrelationId)
+		c.logger.Debug("timeout for request",
+			slog.String("correlation_id", r.Publishing.CorrelationId),
+		)
+
 		return nil, fmt.Errorf("%w while waiting for response", ErrRequestTimeout)
 
 	case delivery := <-r.response:
-		c.debugLog("client: got delivery for %s", r.Publishing.CorrelationId)
+		c.logger.Debug("got response",
+			slog.String("correlation_id", r.Publishing.CorrelationId),
+		)
+
 		return delivery, nil
 	}
 }

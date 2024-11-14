@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 
 func main() {
 	c := amqprpc.NewClient("amqp://guest:guest@localhost:5672/")
-	c.WithErrorLogger(log.New(os.Stdout, "ERROR - ", log.LstdFlags).Printf)
 
 	reader := bufio.NewReader(os.Stdin)
 

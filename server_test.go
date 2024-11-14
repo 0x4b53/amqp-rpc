@@ -3,7 +3,6 @@ package amqprpc
 import (
 	"context"
 	"fmt"
-	"log"
 	"testing"
 	"time"
 
@@ -154,8 +153,7 @@ func TestManualRestart(t *testing.T) {
 	restartChan := make(chan struct{})
 
 	s := NewServer(testURL).
-		WithRestartChan(restartChan).
-		WithDebugLogger(log.Printf)
+		WithRestartChan(restartChan)
 
 	s.OnStarted(func(_, _ *amqp.Connection, _, _ *amqp.Channel) {
 		hasStarted <- struct{}{}

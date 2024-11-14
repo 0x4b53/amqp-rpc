@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"log/slog"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
@@ -16,9 +17,12 @@ type OnErrFunc func(err error, delivery amqp.Delivery)
 // returned from `Ack`.
 //
 //	middleware := AckDelivery(OnAckErrorLog(log.Printf))
-func OnAckErrorLog(logFn amqprpc.LogFunc) OnErrFunc {
+func OnAckErrorLog(logger *slog.Logger) OnErrFunc {
 	return func(err error, delivery amqp.Delivery) {
-		logFn("could not ack delivery (%s): %v\n", delivery.CorrelationId, err)
+		logger.Error("could not ack delivery (%s): %v\n",
+			slog.Any("error", err),
+			slog.String("correlation_id", delivery.CorrelationId),
+		)
 	}
 }
 
@@ -26,8 +30,8 @@ func OnAckErrorLog(logFn amqprpc.LogFunc) OnErrFunc {
 // try to send on the passed channel. If no one is consuming on the passed
 // channel the middleware will not block but instead log a message about missing
 // channel consumers.
-func OnAckErrorSendOnChannel(logFn amqprpc.LogFunc, ch chan struct{}) OnErrFunc {
-	logErr := OnAckErrorLog(logFn)
+func OnAckErrorSendOnChannel(logger *slog.Logger, ch chan struct{}) OnErrFunc {
+	logErr := OnAckErrorLog(logger)
 
 	return func(err error, delivery amqp.Delivery) {
 		logErr(err, delivery)
@@ -35,7 +39,9 @@ func OnAckErrorSendOnChannel(logFn amqprpc.LogFunc, ch chan struct{}) OnErrFunc 
 		select {
 		case ch <- struct{}{}:
 		default:
-			logFn("ack middleware: could not send on channel, no one is consuming\n")
+			logger.Error("ack middleware: could not send on channel, no one is consuming",
+				slog.String("correlation_id", delivery.CorrelationId),
+			)
 		}
 	}
 }

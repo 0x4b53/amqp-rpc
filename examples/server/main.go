@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -16,12 +16,8 @@ import (
 )
 
 func main() {
-	errorLogger := log.New(os.Stdout, "ERROR - ", log.LstdFlags)
-
 	s := amqprpc.NewServer("amqp://guest:guest@localhost:5672/").
-		AddMiddleware(amqprpcmw.PanicRecoveryLogging(errorLogger.Printf))
-
-	s.WithErrorLogger(errorLogger.Printf)
+		AddMiddleware(amqprpcmw.PanicRecoveryLogging(slog.Default()))
 
 	s.Bind(amqprpc.DirectBinding("upper", upper))
 	s.Bind(amqprpc.DirectBinding("beat", beat))

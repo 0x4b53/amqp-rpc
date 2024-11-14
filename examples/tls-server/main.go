@@ -6,9 +6,9 @@ import (
 	"log"
 	"os"
 
-	amqprpc "github.com/0x4b53/amqp-rpc/v5"
-
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	amqprpc "github.com/0x4b53/amqp-rpc/v5"
 )
 
 var (
@@ -24,7 +24,6 @@ func main() {
 	s := amqprpc.NewServer(url).WithDialConfig(amqp.Config{
 		TLSClientConfig: cert.TLSConfig(),
 	})
-	s.WithErrorLogger(logger.Printf)
 
 	s.Bind(amqprpc.DirectBinding("hello_world", handleHelloWorld))
 	s.Bind(amqprpc.DirectBinding("client_usage", handleClientUsage))
