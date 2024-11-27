@@ -360,6 +360,14 @@ func (c *Client) runOnce() error {
 		onStarted(inputConn, outputConn, inputCh, outputCh)
 	}
 
+	// Start listening on NotifyClose before we properly begin so that we avoid
+	// race when the consumer or publisher starts work before we call
+	// monitorAndWait. All have a buffer of 1 as recommended by amqp-go.
+	notifyInputConnClose := inputConn.NotifyClose(make(chan *amqp.Error, 1))
+	notifyOutputConnClose := outputConn.NotifyClose(make(chan *amqp.Error, 1))
+	notifyInputChClose := inputCh.NotifyClose(make(chan *amqp.Error, 1))
+	notifyOutputChClose := outputCh.NotifyClose(make(chan *amqp.Error, 1))
+
 	err = c.runRepliesConsumer(inputCh)
 	if err != nil {
 		return err
@@ -386,10 +394,10 @@ func (c *Client) runOnce() error {
 	_, err = monitorAndWait(
 		make(chan struct{}),
 		c.stopChan,
-		inputConn.NotifyClose(make(chan *amqp.Error)),
-		outputConn.NotifyClose(make(chan *amqp.Error)),
-		inputCh.NotifyClose(make(chan *amqp.Error)),
-		outputCh.NotifyClose(make(chan *amqp.Error)),
+		notifyInputConnClose,
+		notifyOutputConnClose,
+		notifyInputChClose,
+		notifyOutputChClose,
 	)
 	if err != nil {
 		return err

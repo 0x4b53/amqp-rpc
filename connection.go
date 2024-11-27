@@ -19,29 +19,39 @@ var ErrUnexpectedConnClosed = errors.New("unexpected connection close without sp
 // NotifyPublish etc.
 type OnStartedFunc func(inputConn, outputConn *amqp.Connection, inputChannel, outputChannel *amqp.Channel)
 
-func monitorAndWait(restartChan, stopChan chan struct{}, amqpErrs ...chan *amqp.Error) (bool, error) {
-	result := make(chan error, len(amqpErrs))
-
-	// Setup monitoring for connections and channels, can be several connections and several channels.
-	// The first one closed will yield the error.
-	for _, errCh := range amqpErrs {
-		go func(c chan *amqp.Error) {
-			err, ok := <-c
-			if !ok {
-				result <- ErrUnexpectedConnClosed
-				return
-			}
-			result <- err
-		}(errCh)
-	}
-
+func monitorAndWait(
+	restartChan,
+	stopChan chan struct{},
+	inputConnClose,
+	outputConnClose,
+	inputChClose,
+	outputChClose chan *amqp.Error,
+) (bool, error) {
 	select {
-	case err := <-result:
-		return true, err
 	case <-restartChan:
 		return true, nil
 	case <-stopChan:
 		return false, nil
+	case err, ok := <-inputConnClose:
+		if !ok {
+			return false, ErrUnexpectedConnClosed
+		}
+		return false, err
+	case err, ok := <-outputConnClose:
+		if !ok {
+			return false, ErrUnexpectedConnClosed
+		}
+		return false, err
+	case err, ok := <-inputChClose:
+		if !ok {
+			return false, ErrUnexpectedConnClosed
+		}
+		return false, err
+	case err, ok := <-outputChClose:
+		if !ok {
+			return false, ErrUnexpectedConnClosed
+		}
+		return false, err
 	}
 }
 
