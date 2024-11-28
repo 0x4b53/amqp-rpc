@@ -30,27 +30,36 @@ func monitorAndWait(
 	select {
 	case <-restartChan:
 		return true, nil
+
 	case <-stopChan:
 		return false, nil
+
 	case err, ok := <-inputConnClose:
 		if !ok {
 			return false, ErrUnexpectedConnClosed
 		}
+
 		return false, err
+
 	case err, ok := <-outputConnClose:
 		if !ok {
 			return false, ErrUnexpectedConnClosed
 		}
+
 		return false, err
+
 	case err, ok := <-inputChClose:
 		if !ok {
 			return false, ErrUnexpectedConnClosed
 		}
+
 		return false, err
+
 	case err, ok := <-outputChClose:
 		if !ok {
 			return false, ErrUnexpectedConnClosed
 		}
+
 		return false, err
 	}
 }

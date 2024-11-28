@@ -13,13 +13,6 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-const (
-	// chanSendWaitTime is the maximum time we will wait when sending a
-	// response, confirm or error on the corresponding channels. This is so that
-	// we won't block forever if the listening goroutine has stopped listening.
-	chanSendWaitTime = 10 * time.Second
-)
-
 var (
 	// ErrRequestReturned can be returned by Client#Send() when the server
 	// returns the message. For example when mandatory is set but the message
@@ -442,7 +435,7 @@ func (c *Client) runPublisher(ouputChan *amqp.Channel) {
 				request.Publishing.ReplyTo = ""
 			}
 
-			c.logger.Debug("publishing request",
+			c.logger.DebugContext(request.Context, "publishing request",
 				slog.String("correlation_id", request.Publishing.CorrelationId),
 			)
 
@@ -467,7 +460,7 @@ func (c *Client) runPublisher(ouputChan *amqp.Channel) {
 
 				c.retryRequest(request, err)
 
-				c.logger.Error(
+				c.logger.ErrorContext(request.Context,
 					"publisher stopped because of error",
 					slog.Any("error", err),
 					slogGroupFor("request", slogAttrsForRequest(request)),
@@ -498,7 +491,7 @@ func (c *Client) runPublisher(ouputChan *amqp.Channel) {
 func (c *Client) retryRequest(request *Request, err error) {
 	if request.numRetries >= c.maxRetries {
 		// We have already retried too many times
-		c.logger.Error(
+		c.logger.ErrorContext(request.Context,
 			"could not publish, giving up",
 			slog.Any("error", err),
 			slogGroupFor("request", slogAttrsForRequest(request)),
@@ -517,16 +510,16 @@ func (c *Client) retryRequest(request *Request, err error) {
 	request.numRetries++
 
 	go func() {
-		c.logger.Debug("queuing request for retry",
+		c.logger.DebugContext(request.Context, "queuing request for retry",
 			slog.Any("error", err),
 			slogGroupFor("request", slogAttrsForRequest(request)),
 		)
 
 		select {
 		case c.requests <- request:
-		case <-request.AfterTimeout():
-			c.logger.Debug("request timed out while waiting for retry",
-				slog.Any("error", err),
+		case <-request.Context.Done():
+			c.logger.ErrorContext(request.Context, "canceled while waiting for retry",
+				slog.Any("error", errors.Join(context.Cause(request.Context), err)),
 				slogGroupFor("request", slogAttrsForRequest(request)),
 			)
 		}
@@ -561,7 +554,7 @@ func (c *Client) runConfirmsConsumer(confirms chan amqp.Confirmation, returns ch
 				continue
 			}
 
-			c.logger.Debug("publishing is returned by server",
+			c.logger.DebugContext(request.Context, "publishing is returned by server",
 				slog.String("correlation_id", ret.CorrelationId),
 			)
 
@@ -587,7 +580,7 @@ func (c *Client) runConfirmsConsumer(confirms chan amqp.Confirmation, returns ch
 				continue
 			}
 
-			c.logger.Debug("confirming request",
+			c.logger.DebugContext(request.Context, "confirming request",
 				slog.String("correlation_id", request.Publishing.CorrelationId),
 			)
 
@@ -629,8 +622,8 @@ func (c *Client) respondToRequest(request *Request, response *amqp.Delivery) {
 	select {
 	case request.response <- response:
 		return
-	case <-time.After(chanSendWaitTime):
-		c.logger.Error(
+	case <-request.Context.Done():
+		c.logger.ErrorContext(request.Context,
 			"nobody is waiting for response",
 			slogGroupFor("request", slogAttrsForRequest(request)),
 			slogGroupFor("delivery", slogAttrsForDelivery(response)),
@@ -643,8 +636,8 @@ func (c *Client) respondErrorToRequest(request *Request, err error) {
 	select {
 	case request.errChan <- err:
 		return
-	case <-time.After(chanSendWaitTime):
-		c.logger.Error(
+	case <-request.Context.Done():
+		c.logger.ErrorContext(request.Context,
 			"nobody is waiting for error",
 			slog.Any("error", err),
 			slogGroupFor("request", slogAttrsForRequest(request)),
@@ -658,8 +651,8 @@ func (c *Client) confirmRequest(request *Request) {
 	select {
 	case request.confirmed <- struct{}{}:
 		return
-	case <-time.After(chanSendWaitTime):
-		c.logger.Error(
+	case <-request.Context.Done():
+		c.logger.ErrorContext(request.Context,
 			"nobody is waiting for confirmation",
 			slogGroupFor("request", slogAttrsForRequest(request)),
 		)
@@ -716,7 +709,7 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 				continue
 			}
 
-			c.logger.Debug("forwarding reply",
+			c.logger.DebugContext(request.Context, "forwarding reply",
 				slog.String("correlation_id", response.CorrelationId),
 			)
 
@@ -724,8 +717,8 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 
 			select {
 			case request.response <- &responseCopy:
-			case <-time.After(chanSendWaitTime):
-				c.logger.Error(
+			case <-request.Context.Done():
+				c.logger.ErrorContext(request.Context,
 					"nobody is waiting on response on request",
 					slogGroupFor("request", slogAttrsForRequest(request)),
 				)
@@ -773,23 +766,28 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 
 	defer c.requestsMap.Delete(r)
 
-	r.startTimeout(c.timeout)
-	timeoutChan := r.AfterTimeout()
+	cancel := r.startTimeout(c.timeout)
+	defer cancel()
 
 	c.logger.Debug("queuing request", slog.String("correlation_id", r.Publishing.CorrelationId))
 
 	select {
 	case c.requests <- r:
 		// successful send.
-	case <-timeoutChan:
-		c.logger.Debug("timeout while waiting for request queue %s",
+	case <-r.Context.Done():
+		err := context.Cause(r.Context)
+
+		c.logger.DebugContext(r.Context,
+			"canceled while waiting for request queue",
+			slog.Any("error", err),
 			slog.String("correlation_id", r.Publishing.CorrelationId),
 		)
 
-		return nil, fmt.Errorf("%w while waiting for request queue", ErrRequestTimeout)
+		return nil, fmt.Errorf("%w while waiting for request queue", err)
 	}
 
-	c.logger.Debug("waiting for reply",
+	c.logger.DebugContext(r.Context,
+		"waiting for reply",
 		slog.String("correlation_id", r.Publishing.CorrelationId),
 	)
 
@@ -798,34 +796,44 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	select {
 	case <-r.confirmed:
 		// got confirmation.
-	case <-timeoutChan:
-		c.logger.Debug("timeout while waiting for request confirmation",
+	case <-r.Context.Done():
+		err := context.Cause(r.Context)
+
+		c.logger.DebugContext(r.Context,
+			"canceled while waiting for request confirmation",
+			slog.Any("error", err),
 			slog.String("correlation_id", r.Publishing.CorrelationId),
 		)
 
-		return nil, fmt.Errorf("%w while waiting for confirmation", ErrRequestTimeout)
+		return nil, fmt.Errorf("%w while waiting for confirmation", err)
 	}
 
 	// All responses are published on the requests response channel. Hang here
 	// until a response is received and close the channel when it's read.
 	select {
 	case err := <-r.errChan:
-		c.logger.Debug("error for request",
+		c.logger.DebugContext(r.Context,
+			"error for request",
 			slog.Any("error", err),
 			slog.String("correlation_id", r.Publishing.CorrelationId),
 		)
 
 		return nil, err
 
-	case <-timeoutChan:
-		c.logger.Debug("timeout for request",
+	case <-r.Context.Done():
+		err := context.Cause(r.Context)
+
+		c.logger.DebugContext(r.Context,
+			"canceled while waiting for response",
+			slog.Any("error", err),
 			slog.String("correlation_id", r.Publishing.CorrelationId),
 		)
 
-		return nil, fmt.Errorf("%w while waiting for response", ErrRequestTimeout)
+		return nil, fmt.Errorf("%w while waiting for response", err)
 
 	case delivery := <-r.response:
-		c.logger.Debug("got response",
+		c.logger.DebugContext(r.Context,
+			"got response",
 			slog.String("correlation_id", r.Publishing.CorrelationId),
 		)
 
