@@ -7,9 +7,11 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -102,179 +104,180 @@ func TestClientReturn(t *testing.T) {
 	}
 }
 
-func TestClient_ConfirmsConsumer_return(t *testing.T) {
+func TestClient_ConfirmsConsumer(t *testing.T) {
+	t.Parallel()
+
 	client := NewClient("")
 	client.requestsMap = RequestMap{
 		byDeliveryTag:   make(map[uint64]*Request),
 		byCorrelationID: make(map[string]*Request),
 	}
+
+	var nextDeliveryTag uint64 = 0
 
 	returns := make(chan amqp.Return)
 	confirms := make(chan amqp.Confirmation)
 
 	go client.runConfirmsConsumer(confirms, returns)
 
-	tests := []struct {
-		name       string
-		isUnknown  bool
-		wantReturn bool
-		wantErr    bool
-	}{
-		{
-			name:       "known return sets error",
-			isUnknown:  false,
-			wantReturn: true,
-			wantErr:    true,
-		},
-		{
-			name:       "unknown does nothing",
-			isUnknown:  true,
-			wantReturn: false,
-			wantErr:    false,
-		},
+	t.Cleanup(func() {
+		close(confirms)
+		close(returns)
+	})
+
+	makeRequest := func() *Request {
+		deliveryTag := atomic.AddUint64(&nextDeliveryTag, 1)
+
+		request := NewRequest()
+		request.response = make(chan response)
+		request.deliveryTag = deliveryTag
+		request.Publishing.CorrelationId = uuid.NewString()
+		client.requestsMap.Set(request)
+
+		return request
 	}
 
-	for i, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			request := NewRequest().
-				WithResponse(false)
+	t.Run("returns", func(t *testing.T) {
+		t.Run("unknown CorrelationId does nothing", func(t *testing.T) {
+			r := makeRequest()
 
-			request.confirmed = make(chan struct{})
-			request.response = make(chan *amqp.Delivery)
-			request.errChan = make(chan error)
-			request.deliveryTag = uint64(i)
-			request.Publishing.CorrelationId = tt.name
-
-			if !tt.isUnknown {
-				client.requestsMap.Set(request)
-			}
-
-			go func() {
-				returns <- amqp.Return{
-					CorrelationId: request.Publishing.CorrelationId,
-				}
-
-				confirms <- amqp.Confirmation{
-					DeliveryTag: request.deliveryTag,
-					Ack:         true,
-				}
-			}()
-
-			select {
-			case <-request.confirmed:
-				assert.True(t, tt.wantErr, "request confirmed")
-			case <-time.After(10 * time.Millisecond):
-				assert.False(t, tt.wantErr, "request not confirmed")
+			returns <- amqp.Return{
+				CorrelationId: uuid.NewString(),
 			}
 
 			select {
-			case <-request.errChan:
-				assert.True(t, tt.wantErr, "got error")
-			case <-time.After(10 * time.Millisecond):
-				assert.False(t, tt.wantErr, "no error")
+			case <-time.After(30 * time.Millisecond):
+			case <-r.response:
+				t.Fatal("got response")
 			}
 		})
-	}
-}
 
-func TestClient_ConfirmsConsumer_confirm(t *testing.T) {
-	client := NewClient("")
-	client.requestsMap = RequestMap{
-		byDeliveryTag:   make(map[uint64]*Request),
-		byCorrelationID: make(map[string]*Request),
-	}
+		t.Run("sets request.returned", func(t *testing.T) {
+			r := makeRequest()
 
-	confirms := make(chan amqp.Confirmation)
-
-	go client.runConfirmsConsumer(confirms, make(chan amqp.Return))
-
-	tests := []struct {
-		name            string
-		ack             bool
-		wantNoConfirm   bool
-		wantNilResponse bool
-		wantErr         bool
-		isReturned      bool
-		isUnknown       bool
-	}{
-		{
-			name:          "unknown request does nothing",
-			wantNoConfirm: true,
-			isUnknown:     true,
-		},
-		{
-			name:            "ack request makes it confirmed",
-			ack:             true,
-			wantErr:         false,
-			wantNilResponse: true,
-		},
-		{
-			name:    "nack request makes it confirmed",
-			ack:     false,
-			wantErr: true,
-		},
-		{
-			name:            "no automatic response",
-			ack:             true,
-			wantNilResponse: false,
-		},
-		{
-			name:       "returned request gives error",
-			isReturned: true,
-			ack:        true,
-			wantErr:    true,
-		},
-	}
-
-	for i, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			request := NewRequest().
-				WithResponse(!tt.wantNilResponse)
-
-			request.confirmed = make(chan struct{})
-			request.response = make(chan *amqp.Delivery)
-			request.errChan = make(chan error)
-			request.deliveryTag = uint64(i)
-
-			if !tt.isUnknown {
-				client.requestsMap.Set(request)
+			returns <- amqp.Return{
+				CorrelationId: r.Publishing.CorrelationId,
+				ReplyCode:     404,
+				ReplyText:     "NO_ROUTE",
 			}
 
-			if tt.isReturned {
-				request.returned = &amqp.Return{}
-			}
-
-			go func() {
-				confirms <- amqp.Confirmation{
-					DeliveryTag: request.deliveryTag,
-					Ack:         tt.ack,
-				}
-			}()
-
-			select {
-			case <-request.confirmed:
-				assert.False(t, tt.wantNoConfirm, "request confirmed")
-			case <-time.After(10 * time.Millisecond):
-				assert.True(t, tt.wantNoConfirm, "request not confirmed")
-			}
-
-			client.requestsMap.Delete(request)
-
-			select {
-			case <-request.response:
-				assert.True(t, tt.wantNilResponse, "got response")
-			case <-time.After(10 * time.Millisecond):
-				assert.False(t, tt.wantNilResponse, "no response")
+			confirms <- amqp.Confirmation{
+				DeliveryTag: r.deliveryTag,
+				Ack:         true,
 			}
 
 			select {
-			case <-request.errChan:
-				assert.True(t, tt.wantErr, "got error")
-			case <-time.After(10 * time.Millisecond):
-				assert.False(t, tt.wantErr, "no error")
+			case res := <-r.response:
+				require.ErrorIs(t, res.err, ErrRequestReturned)
+				require.Nil(t, res.delivery)
+				require.ErrorContains(t, res.err, "404")
+				require.ErrorContains(t, res.err, "NO_ROUTE")
+			case <-time.After(5 * time.Second):
+				t.Fatal("got no response")
 			}
 		})
-	}
+	})
+
+	t.Run("confirms", func(t *testing.T) {
+		t.Run("unknown DeliveryTag does nothing", func(t *testing.T) {
+			r := makeRequest()
+
+			confirms <- amqp.Confirmation{
+				DeliveryTag: 1338 * 1200,
+			}
+
+			select {
+			case <-time.After(30 * time.Millisecond):
+			case <-r.response:
+				t.Fatal("got response")
+			}
+		})
+
+		t.Run("responds directly when the request wants no reply", func(t *testing.T) {
+			r := makeRequest().WithResponse(false)
+
+			confirms <- amqp.Confirmation{
+				DeliveryTag: r.deliveryTag,
+				Ack:         true,
+			}
+
+			select {
+			case res := <-r.response:
+				require.NoError(t, res.err)
+				require.Nil(t, res.delivery)
+			case <-time.After(5 * time.Second):
+				t.Fatal("got no response")
+			}
+		})
+
+		t.Run("no response when the request wants reply", func(t *testing.T) {
+			r := makeRequest().WithResponse(true)
+
+			confirms <- amqp.Confirmation{
+				DeliveryTag: r.deliveryTag,
+				Ack:         true,
+			}
+
+			select {
+			case <-time.After(30 * time.Millisecond):
+			case <-r.response:
+				t.Fatal("got response")
+			}
+		})
+
+		t.Run("nack will respond with ErrRequestRejected", func(t *testing.T) {
+			r := makeRequest()
+
+			confirms <- amqp.Confirmation{
+				DeliveryTag: r.deliveryTag,
+				Ack:         false,
+			}
+
+			select {
+			case res := <-r.response:
+				require.ErrorIs(t, res.err, ErrRequestRejected)
+				require.Nil(t, res.delivery)
+			case <-time.After(5 * time.Second):
+				t.Fatal("got no response")
+			}
+		})
+	})
+
+	t.Run("closing returns will not stop select", func(t *testing.T) {
+		confirms := make(chan amqp.Confirmation)
+		returns := make(chan amqp.Return)
+		finished := make(chan struct{})
+
+		go func() {
+			client.runConfirmsConsumer(confirms, returns)
+			close(finished)
+		}()
+
+		close(returns)
+
+		// Confirms are still consumed until the channel is closed.
+		{
+			r := makeRequest()
+			confirms <- amqp.Confirmation{
+				DeliveryTag: r.deliveryTag,
+				Ack:         false,
+			}
+
+			select {
+			case <-r.response:
+			case <-time.After(5 * time.Second):
+				t.Fatal("got no response")
+			}
+		}
+
+		close(confirms)
+
+		select {
+		case <-finished:
+		case <-time.After(5 * time.Second):
+			t.Fatal("did not exit")
+		}
+	})
 }
 
 func TestClientStopWhenCannotStart(t *testing.T) {

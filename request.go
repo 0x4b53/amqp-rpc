@@ -46,16 +46,14 @@ type Request struct {
 
 	// These channels are used by the repliesConsumer and correlcationIdMapping and will send the
 	// replies to this Request here.
-	response chan *amqp.Delivery
-	errChan  chan error // If we get a client error (e.g we can't publish) it will end up here.
+	response chan response
 
 	// the number of times that the publisher should retry.
 	numRetries int
 
 	deliveryTag uint64
 
-	confirmed chan struct{}
-	returned  *amqp.Return
+	returned *amqp.Return
 }
 
 // NewRequest will generate a new request to be published. The default request
@@ -256,4 +254,9 @@ func (m *RequestMap) Delete(r *Request) {
 	delete(m.byDeliveryTag, r.deliveryTag)
 	delete(m.byCorrelationID, r.Publishing.CorrelationId)
 	m.mu.Unlock()
+}
+
+type response struct {
+	delivery *amqp.Delivery
+	err      error
 }

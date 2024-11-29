@@ -469,17 +469,10 @@ func (c *Client) runPublisher(ouputChan *amqp.Channel) {
 				return
 			}
 
-			if !c.confirmMode {
-				// We're not in confirm mode so we confirm that we have sent
-				// the request here.
-				c.confirmRequest(request)
-
-				if !request.Reply {
-					// Since we won't get a confirmation of this request and
-					// we don't want to have a reply, just return nil to the
-					// caller.
-					c.respondToRequest(request, nil)
-				}
+			if !c.confirmMode && !request.Reply {
+				// Since we won't get a confirmation of this request and we
+				// don't want to have a reply, just return nil to the caller.
+				c.respondToRequest(request, nil, nil)
 			}
 		}
 	}
@@ -497,12 +490,8 @@ func (c *Client) retryRequest(request *Request, err error) {
 			slogGroupFor("request", slogAttrsForRequest(request)),
 		)
 
-		// We shouldn't wait for confirmations any more because they will never
-		// arrive.
-		c.confirmRequest(request)
-
 		// Return whatever error .Publish returned to the caller.
-		c.respondErrorToRequest(request, err)
+		c.respondToRequest(request, nil, err)
 
 		return
 	}
@@ -534,7 +523,11 @@ func (c *Client) runConfirmsConsumer(confirms chan amqp.Confirmation, returns ch
 		select {
 		case ret, ok := <-returns:
 			if !ok {
-				return
+				// Only the closing of confirms will exit this loop. Closing
+				// the returns channel will do nothing. This ensures that we
+				// don't exit until we have handled all confirmations.
+				returns = nil
+				continue
 			}
 
 			request, ok := c.requestsMap.GetByCorrelationID(ret.CorrelationId)
@@ -584,10 +577,8 @@ func (c *Client) runConfirmsConsumer(confirms chan amqp.Confirmation, returns ch
 				slog.String("correlation_id", request.Publishing.CorrelationId),
 			)
 
-			c.confirmRequest(request)
-
 			if !confirm.Ack {
-				c.respondErrorToRequest(request, ErrRequestRejected)
+				c.respondToRequest(request, nil, ErrRequestRejected)
 
 				// Doesn't matter if the request wants the nil reply below because
 				// we gave it an error instead.
@@ -596,14 +587,11 @@ func (c *Client) runConfirmsConsumer(confirms chan amqp.Confirmation, returns ch
 
 			// Check if the request was also returned.
 			if request.returned != nil {
-				c.respondErrorToRequest(
-					request,
-					fmt.Errorf("%w: %d, %s",
-						ErrRequestReturned,
-						request.returned.ReplyCode,
-						request.returned.ReplyText,
-					),
-				)
+				c.respondToRequest(request, nil, fmt.Errorf("%w: %d, %s",
+					ErrRequestReturned,
+					request.returned.ReplyCode,
+					request.returned.ReplyText,
+				))
 
 				continue
 			}
@@ -611,50 +599,23 @@ func (c *Client) runConfirmsConsumer(confirms chan amqp.Confirmation, returns ch
 			if !request.Reply {
 				// The request isn't expecting a reply so we need give a nil
 				// response instead to signal that we're done.
-				c.respondToRequest(request, nil)
+				c.respondToRequest(request, nil, nil)
 			}
 		}
 	}
 }
 
-// respondErrorToRequest will return the provided response to the caller.
-func (c *Client) respondToRequest(request *Request, response *amqp.Delivery) {
+// respondToRequest will return the provided response to the caller.
+func (c *Client) respondToRequest(request *Request, d *amqp.Delivery, err error) {
 	select {
-	case request.response <- response:
+	case request.response <- response{delivery: d, err: err}:
 		return
 	case <-request.Context.Done():
 		c.logger.ErrorContext(request.Context,
 			"nobody is waiting for response",
+			slog.Any("error", errors.Join(context.Cause(request.Context), err)),
 			slogGroupFor("request", slogAttrsForRequest(request)),
-			slogGroupFor("delivery", slogAttrsForDelivery(response)),
-		)
-	}
-}
-
-// respondErrorToRequest will return the provided error to the caller.
-func (c *Client) respondErrorToRequest(request *Request, err error) {
-	select {
-	case request.errChan <- err:
-		return
-	case <-request.Context.Done():
-		c.logger.ErrorContext(request.Context,
-			"nobody is waiting for error",
-			slog.Any("error", err),
-			slogGroupFor("request", slogAttrsForRequest(request)),
-		)
-	}
-}
-
-// confirmRequest will mark the provided request as confirmed by the amqp
-// server.
-func (c *Client) confirmRequest(request *Request) {
-	select {
-	case request.confirmed <- struct{}{}:
-		return
-	case <-request.Context.Done():
-		c.logger.ErrorContext(request.Context,
-			"nobody is waiting for confirmation",
-			slogGroupFor("request", slogAttrsForRequest(request)),
+			slogGroupFor("delivery", slogAttrsForDelivery(d)),
 		)
 	}
 }
@@ -713,16 +674,7 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel) error {
 				slog.String("correlation_id", response.CorrelationId),
 			)
 
-			responseCopy := response
-
-			select {
-			case request.response <- &responseCopy:
-			case <-request.Context.Done():
-				c.logger.ErrorContext(request.Context,
-					"nobody is waiting on response on request",
-					slogGroupFor("request", slogAttrsForRequest(request)),
-				)
-			}
+			c.respondToRequest(request, &response, nil)
 		}
 
 		c.logger.Debug("replies consumer is done")
@@ -748,16 +700,7 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// If this request doesn't want a reply back (by setting Reply to false)
 	// this channel will get a nil message after publisher has Published the
 	// message.
-	r.response = make(chan *amqp.Delivery)
-
-	// This channel is sent to when the request is confirmed. This can happen
-	// both when confirm-mode is set. And if not set, it's automatically
-	// confirmed once the request is published.
-	r.confirmed = make(chan struct{})
-
-	// This is where we get any (client) errors if they occur before we could
-	// even send the request.
-	r.errChan = make(chan error)
+	r.response = make(chan response)
 
 	// Set the correlation id on the publishing if not yet set.
 	if r.Publishing.CorrelationId == "" {
@@ -791,35 +734,9 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 		slog.String("correlation_id", r.Publishing.CorrelationId),
 	)
 
-	// We hang here until the request has been published (or when confirm-mode
-	// is on; confirmed).
 	select {
-	case <-r.confirmed:
-		// got confirmation.
-	case <-r.Context.Done():
-		err := context.Cause(r.Context)
-
-		c.logger.DebugContext(r.Context,
-			"canceled while waiting for request confirmation",
-			slog.Any("error", err),
-			slog.String("correlation_id", r.Publishing.CorrelationId),
-		)
-
-		return nil, fmt.Errorf("%w while waiting for confirmation", err)
-	}
-
-	// All responses are published on the requests response channel. Hang here
-	// until a response is received and close the channel when it's read.
-	select {
-	case err := <-r.errChan:
-		c.logger.DebugContext(r.Context,
-			"error for request",
-			slog.Any("error", err),
-			slog.String("correlation_id", r.Publishing.CorrelationId),
-		)
-
-		return nil, err
-
+	case res := <-r.response:
+		return res.delivery, res.err
 	case <-r.Context.Done():
 		err := context.Cause(r.Context)
 
@@ -830,14 +747,6 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 		)
 
 		return nil, fmt.Errorf("%w while waiting for response", err)
-
-	case delivery := <-r.response:
-		c.logger.DebugContext(r.Context,
-			"got response",
-			slog.String("correlation_id", r.Publishing.CorrelationId),
-		)
-
-		return delivery, nil
 	}
 }
 
