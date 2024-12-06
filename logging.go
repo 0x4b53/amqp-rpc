@@ -185,8 +185,10 @@ func slogAttrsForRequest(v *Request) []slog.Attr {
 		vals = append(vals, slog.Bool("mandatory", v.Mandatory))
 	}
 
-	if v.Timeout > 0 {
-		vals = append(vals, slog.Duration("timeout", v.Timeout))
+	if v.Context != nil {
+		if deadline, ok := v.Context.Deadline(); ok {
+			vals = append(vals, slog.Time("deadline", deadline))
+		}
 	}
 
 	return vals

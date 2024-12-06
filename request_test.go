@@ -3,7 +3,9 @@ package amqprpc
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
@@ -95,6 +97,102 @@ func TestRequestWriting(t *testing.T) {
 		r.WriteHeader("baz", "foo")
 		assert.Equal(tt, amqp.Table{"overwritten": "headers", "baz": "foo"}, r.Publishing.Headers, "correct headers written")
 	})
+}
+
+func TestRequestTimeout(t *testing.T) {
+	tests := []struct {
+		name            string
+		defaultTimeout  time.Duration
+		requestTimeout  time.Duration
+		contextTimeout  time.Duration
+		wantCtxDeadline time.Duration
+	}{
+		{
+			name: "no timeout when no timeout is set",
+		},
+		{
+			name:            "request timeout is used when set, even when later",
+			defaultTimeout:  10 * time.Second,
+			requestTimeout:  20 * time.Second,
+			contextTimeout:  30 * time.Second,
+			wantCtxDeadline: 20 * time.Second,
+		},
+		{
+			name:            "use default when request timeout is not set",
+			defaultTimeout:  10 * time.Second,
+			requestTimeout:  0,
+			contextTimeout:  30 * time.Second,
+			wantCtxDeadline: 10 * time.Second,
+		},
+		{
+			name:            "context deadline is used when earlier than request timeout",
+			defaultTimeout:  10 * time.Second,
+			requestTimeout:  20 * time.Second,
+			contextTimeout:  15 * time.Second,
+			wantCtxDeadline: 15 * time.Second,
+		},
+		{
+			name:            "context deadline is used when earlier than default timeout",
+			defaultTimeout:  10 * time.Second,
+			requestTimeout:  0,
+			contextTimeout:  5 * time.Second,
+			wantCtxDeadline: 5 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			wantDeadlineMin := time.Now().Add(tt.wantCtxDeadline)
+
+			if tt.contextTimeout > 0 {
+				var ctxCancel context.CancelFunc
+
+				ctx, ctxCancel = context.WithTimeout(context.Background(), tt.contextTimeout)
+				defer ctxCancel()
+			}
+
+			r := NewRequest().
+				WithContext(ctx).
+				WithTimeout(tt.requestTimeout)
+
+			cancel := r.startTimeout(tt.defaultTimeout)
+			defer cancel()
+
+			wantDeadlineMax := wantDeadlineMin.Add(tt.wantCtxDeadline)
+
+			if tt.wantCtxDeadline == 0 {
+				_, ok := r.Context.Deadline()
+				require.False(t, ok)
+				require.Zero(t, r.Publishing.Expiration)
+
+				return
+			}
+
+			{
+				// Ensure that the deadline is set correctly.
+				deadline, ok := r.Context.Deadline()
+				require.True(t, ok)
+
+				require.GreaterOrEqual(t, deadline, wantDeadlineMin)
+				require.LessOrEqual(t, deadline, wantDeadlineMax)
+
+				require.NotZero(t, r.Publishing.Expiration)
+			}
+
+			{
+				// ensure that the expiration is set correctly on the publishing.
+				i, err := strconv.ParseInt(r.Publishing.Expiration, 10, 64)
+				require.NoError(t, err)
+
+				expireAt := time.Now().Add(time.Duration(i) * time.Millisecond)
+
+				require.GreaterOrEqual(t, expireAt, wantDeadlineMin)
+				require.LessOrEqual(t, expireAt, wantDeadlineMax)
+			}
+		})
+	}
 }
 
 func TestRequestContext(t *testing.T) {
