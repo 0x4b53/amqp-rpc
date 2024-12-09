@@ -2,7 +2,7 @@ package amqprpc
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -32,10 +32,6 @@ type Request struct {
 	// we assume the request got lost.
 	Timeout time.Duration
 
-	// timeoutAt is the exact time when the request times out. This is set by
-	// the client when starting the countdown.
-	timeoutAt time.Time
-
 	// Publishing is the publising that are going to be published.
 	Publishing amqp.Publishing
 
@@ -50,16 +46,14 @@ type Request struct {
 
 	// These channels are used by the repliesConsumer and correlcationIdMapping and will send the
 	// replies to this Request here.
-	response chan *amqp.Delivery
-	errChan  chan error // If we get a client error (e.g we can't publish) it will end up here.
+	response chan response
 
 	// the number of times that the publisher should retry.
 	numRetries int
 
 	deliveryTag uint64
 
-	confirmed chan struct{}
-	returned  *amqp.Return
+	returned *amqp.Return
 }
 
 // NewRequest will generate a new request to be published. The default request
@@ -184,21 +178,39 @@ func (r *Request) AddMiddleware(m ClientMiddlewareFunc) *Request {
 // startTimeout will start the timeout counter. Is will also set the Expiration
 // field for the Publishing so that amqp won't hold on to the message in the
 // queue after the timeout has happened.
-func (r *Request) startTimeout(defaultTimeout time.Duration) {
-	if r.Timeout.Nanoseconds() == 0 {
-		r.WithTimeout(defaultTimeout)
+func (r *Request) startTimeout(defaultTimeout time.Duration) context.CancelFunc {
+	if r.Context == nil {
+		r.Context = context.Background()
+	}
+
+	timeout := r.Timeout
+	if timeout == 0 {
+		timeout = defaultTimeout
+	}
+
+	var cancel context.CancelFunc
+
+	if timeout > 0 {
+		r.Context, cancel = context.WithTimeoutCause(r.Context, timeout, ErrRequestTimeout)
+	} else {
+		r.Context, cancel = context.WithCancel(r.Context)
 	}
 
 	if r.Reply {
-		r.Publishing.Expiration = fmt.Sprintf("%d", r.Timeout.Nanoseconds()/1e6)
+		if deadline, ok := r.Context.Deadline(); ok {
+			// When a request requires a reply, there is no point in executing the
+			// request if the client has stopped waiting.
+			// We make sure that we round up. 1001μs should be rounded to 2ms.
+			// The expiration is the number of milliseconds until the message
+			// is expired, counted from when it arrives in the queue. This is
+			// always later than now so the message will expire a little later
+			// than the deadline.
+			etaMs := (time.Until(deadline) + time.Millisecond).Milliseconds()
+			r.Publishing.Expiration = strconv.FormatInt(etaMs, 10)
+		}
 	}
 
-	r.timeoutAt = time.Now().Add(r.Timeout)
-}
-
-// AfterTimeout waits for the duration of the timeout.
-func (r *Request) AfterTimeout() <-chan time.Time {
-	return time.After(time.Until(r.timeoutAt))
+	return cancel
 }
 
 // RequestMap keeps track of requests based on their DeliveryTag and/or
@@ -242,4 +254,9 @@ func (m *RequestMap) Delete(r *Request) {
 	delete(m.byDeliveryTag, r.deliveryTag)
 	delete(m.byCorrelationID, r.Publishing.CorrelationId)
 	m.mu.Unlock()
+}
+
+type response struct {
+	delivery *amqp.Delivery
+	err      error
 }

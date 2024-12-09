@@ -183,12 +183,7 @@ request := NewRequest().
     WithResponse(true)
 ```
 
-By default a `context.Background()` will be added and `WithResponse()` will be
-set to `true`.
-
-`WithTimeout` will also set the `Expiration` on the publishing since there is no
-point of handling the message after the timeout has expired. Setting
-`WithResponse(false)` will ensure that no `Expiration` is set.
+By default the request will have `Reply` set to true to expect a reply to the message.
 
 The `Request` also implements the `io.Writer` interface which makes it possible
 to use directly like that.
@@ -200,6 +195,37 @@ err := json.NewEncoder(request).Encode(serializableObject)
 if err != nil {
     panic(err)
 }
+```
+
+#### Timeout
+
+You can set a timeout on requests with `Client.WithTimeout(duration)`,
+`Request.WithTimeout(duration)` or having a context with a deadline set. Timeouts set on
+the request will take precedence.
+
+When a request expects a reply (`Request.Reply`), the outgoing message
+is also assigned an `Expiration` corresponding to the request’s deadline. This
+ensures the message won’t remain in the queue after the client has stopped
+waiting. If you set a deadline on the context, and that deadline is shorter
+than the timeout, the `Expiration` will be set to that deadline.
+
+#### Context
+
+By default a `context.Background()` will be set on the request. You should set
+your own context so that any cancellation is propagated. Cancelling the context
+will cancel the request and `Client.Send` will unblock and return with the
+error from the `Cause` set by the cancellation. It will not wait for
+confirmations or responses.
+
+```go
+ctx, cancel := context.WithCancelCause(r.Context, errors.New("my error"))
+cancel()
+
+request := NewRequest().
+    WithContext(ctx)
+
+_, err := client.Send(NewRequest().WithContext(ctx))
+fmt.Println(err) // my error
 ```
 
 ### Sender
