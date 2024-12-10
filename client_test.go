@@ -118,7 +118,10 @@ func TestClient_ConfirmsConsumer(t *testing.T) {
 	returns := make(chan amqp.Return)
 	confirms := make(chan amqp.Confirmation)
 
-	go client.runConfirmsConsumer(confirms, returns)
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
+	go client.runConfirmsConsumer(confirms, returns, &wg)
 
 	t.Cleanup(func() {
 		close(confirms)
@@ -246,12 +249,11 @@ func TestClient_ConfirmsConsumer(t *testing.T) {
 	t.Run("closing returns will not stop select", func(t *testing.T) {
 		confirms := make(chan amqp.Confirmation)
 		returns := make(chan amqp.Return)
-		finished := make(chan struct{})
 
-		go func() {
-			client.runConfirmsConsumer(confirms, returns)
-			close(finished)
-		}()
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+
+		go client.runConfirmsConsumer(confirms, returns, &wg)
 
 		close(returns)
 
@@ -272,6 +274,13 @@ func TestClient_ConfirmsConsumer(t *testing.T) {
 
 		close(confirms)
 
+		finished := make(chan struct{})
+
+		go func() {
+			wg.Wait()
+			close(finished)
+		}()
+
 		select {
 		case <-finished:
 		case <-time.After(5 * time.Second):
@@ -280,7 +289,35 @@ func TestClient_ConfirmsConsumer(t *testing.T) {
 	})
 }
 
+func TestClientStop(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient(testURL)
+
+	request := NewRequest().
+		WithResponse(false)
+
+	// Ensure that the client has started.
+	_, err := client.Send(request)
+	require.ErrorIs(t, err, ErrRequestReturned)
+
+	stopped := make(chan struct{})
+
+	go func() {
+		client.Stop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not exit")
+	}
+}
+
 func TestClientStopWhenCannotStart(t *testing.T) {
+	t.Parallel()
+
 	client := NewClient(testURL)
 
 	request := NewRequest().
@@ -290,43 +327,37 @@ func TestClientStopWhenCannotStart(t *testing.T) {
 	_, err := client.Send(request)
 	require.Error(t, err)
 
-	var stopped sync.WaitGroup
-
-	stopped.Add(1)
+	stopped := make(chan struct{})
 
 	go func() {
 		client.Stop()
-		stopped.Done()
+		close(stopped)
 	}()
 
-	assert.Eventually(t, func() bool {
-		stopped.Wait()
-		return true
-	},
-		1*time.Second,
-		500*time.Millisecond,
-	)
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not exit")
+	}
 }
 
 func TestClientStopWhenNeverStarted(t *testing.T) {
+	t.Parallel()
+
 	client := NewClient(testURL)
 
-	var stopped sync.WaitGroup
-
-	stopped.Add(1)
+	stopped := make(chan struct{})
 
 	go func() {
 		client.Stop()
-		stopped.Done()
+		close(stopped)
 	}()
 
-	assert.Eventually(t, func() bool {
-		stopped.Wait()
-		return true
-	},
-		1*time.Second,
-		500*time.Millisecond,
-	)
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not exit")
+	}
 }
 
 func TestClientConfig(t *testing.T) {
