@@ -684,7 +684,7 @@ func (c *Client) runRepliesConsumer(inChan *amqp.Channel, wg *sync.WaitGroup) (c
 	wg.Add(1)
 
 	go func() {
-		wg.Done()
+		defer wg.Done()
 
 		c.logger.Debug("running replies consumer...")
 
