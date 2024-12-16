@@ -226,17 +226,11 @@ func initTest(t *testing.T) (server *Server, client *Client, start, stop func())
 	}
 
 	start = func() {
-		stopServer = startAndWait(server)
-
 		// Ensure the client is started.
-		_, err := client.Send(
-			NewRequest().
-				WithRoutingKey(defaultTestQueue).
-				WithMandatory(true).
-				WithResponse(true),
-		)
-
+		err := client.RunForever()
 		require.NoError(t, err)
+
+		stopServer = startAndWait(server)
 	}
 
 	return

@@ -3,6 +3,7 @@ package amqprpc
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"runtime"
 	"strconv"
@@ -542,43 +543,55 @@ func TestClientTimeout(t *testing.T) {
 	}
 }
 
-func TestClientTimeoutWhileConnecting(t *testing.T) {
-	cases := []struct {
-		name        string
-		client      *Client
-		request     *Request
-		wantTimeout bool
-	}{
-		{
-			name:        "Client not being able to connect causes real timeout error",
-			client:      NewClient("amqp://guest:guest@example:1234/").WithTimeout(10 * time.Millisecond),
-			request:     NewRequest().WithResponse(false),
-			wantTimeout: true,
-		},
-		{
-			name:        "Client with response not being able to connect causes real timeout error",
-			client:      NewClient("amqp://guest:guest@example:1234/").WithTimeout(10 * time.Millisecond),
-			request:     NewRequest().WithResponse(true),
-			wantTimeout: true,
-		},
-	}
+func TestClientDialErrorDuringSendReturnsError(t *testing.T) {
+	t.Parallel()
 
-	for _, tc := range cases {
-		tc.request.WriteHeader("timeout", tc.wantTimeout)
-		tc.request.WithRoutingKey("myqueue")
+	client := NewClient("amqp://guest:guest@example:1234/")
 
-		t.Run(tc.name, func(t *testing.T) {
-			response, err := tc.client.Send(tc.request)
-			if !tc.wantTimeout {
-				require.NoError(t, err)
-				return
-			}
+	t.Cleanup(func() {
+		client.Stop()
+	})
 
+	for i := 0; i < 3; i++ {
+		t.Run("iteration "+strconv.Itoa(i), func(t *testing.T) {
+			t.Parallel()
+
+			_, err := client.Send(NewRequest())
 			require.Error(t, err)
-			require.ErrorIs(t, err, ErrRequestTimeout)
-			assert.Nil(t, response)
+			require.ErrorContains(t, err, "dial tcp: lookup example: no such host")
 		})
 	}
+}
+
+func TestClientSlowDialWillNotCauseTimeout(t *testing.T) {
+	t.Parallel()
+
+	server := testServer()
+	stopServer := startAndWait(server)
+
+	client := NewClient(testURL).
+		WithTimeout(190 * time.Millisecond).
+		WithLogger(slog.Default()).
+		WithDialConfig(amqp.Config{
+			Dial: func(network, addr string) (net.Conn, error) {
+				time.Sleep(200 * time.Millisecond)
+				return amqp.DefaultDial(1*time.Second)(network, addr)
+			},
+		})
+
+	t.Cleanup(func() {
+		stopServer()
+		client.Stop()
+	})
+
+	request := NewRequest().
+		WithRoutingKey(defaultTestQueue).
+		WithBody("client testing")
+
+	result, err := client.Send(request)
+	require.NoError(t, err)
+
+	assert.Equal(t, []byte("Got message: client testing"), result.Body)
 }
 
 func TestGracefulShutdown(t *testing.T) {

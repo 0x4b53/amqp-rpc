@@ -87,6 +87,8 @@ func createConnections(url, name string, config amqp.Config) (consumerConn, publ
 
 	publisherConn, err = amqp.DialConfig(url, publisherConnConfig)
 	if err != nil {
+		consumerConn.Close()
+
 		return nil, nil, err
 	}
 
@@ -101,6 +103,8 @@ func createChannels(inputConn, outputConn *amqp.Connection) (inputCh, outputCh *
 
 	outputCh, err = outputConn.Channel()
 	if err != nil {
+		inputCh.Close()
+
 		return nil, nil, err
 	}
 

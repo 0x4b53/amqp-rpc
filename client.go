@@ -97,8 +97,11 @@ type Client struct {
 	// didStopChan will close when the client has finished shutdown.
 	didStopChan chan struct{}
 
-	// isRunning is 1 when the server is running.
-	isRunning int32
+	// isRunning and isConnectingMu are used to ensure that [Client.RunForever]
+	// is only connecting once. Using both a mutex and an atomic ensures that
+	// concurrent calls block until the first call has finished.
+	isRunning      atomic.Bool
+	isConnectingMu sync.Mutex
 
 	// wantStop tells the runForever function to exit even on connection errors.
 	wantStop int32
@@ -270,14 +273,25 @@ func (c *Client) setDefaults() {
 	c.confirmMode = true
 }
 
-// runForever will connect amqp, setup all the amqp channels, run the publisher
+// RunForever will connect amqp, setup all the amqp channels, run the publisher
 // and run the replies consumer. The method will also automatically restart
 // the setup if the underlying connection or socket isn't gracefully closed.
 // This will also block until the client is gracefully stopped.
-func (c *Client) runForever() {
-	if !atomic.CompareAndSwapInt32(&c.isRunning, 0, 1) {
-		// Already running.
-		return
+func (c *Client) RunForever() error {
+	if c.isRunning.Load() {
+		// Fast path, we are already running.
+		return nil
+	}
+
+	// Slow path. This mutex lock in combination with setting c.isRunning after
+	// we have connected will ensure that all concurrent calls to runForever
+	// will block until we are connected.
+	c.isConnectingMu.Lock()
+	defer c.isConnectingMu.Unlock()
+
+	// Check if we are already running after the lock.
+	if c.isRunning.Load() {
+		return nil
 	}
 
 	// Set the reply-to queue name to a unique name for this client and
@@ -291,62 +305,114 @@ func (c *Client) runForever() {
 	c.stopChan = make(chan struct{})
 	c.didStopChan = make(chan struct{})
 
+	// This is closed the when the client is connected with a reply-to
+	// consumer. If the client cannot connect, the error will be sent here.:w
+	setupComplete := make(chan error)
+
 	go func() {
+		// Copy so that we can modify the variable without racing.
+		setupComplete := setupComplete
+
 		for {
 			c.logger.Debug("connecting...")
 
-			err := c.runOnce()
-			if err == nil {
-				c.logger.Debug("finished gracefully")
-				break
-			}
+			wait, err := c.runOnce()
+			if err != nil {
+				if setupComplete != nil {
+					// Connection errors should be returned by the RunForever
+					// function.
+					setupComplete <- err
+					setupComplete = nil
+					break
+				}
 
-			if atomic.LoadInt32(&c.wantStop) == 1 {
-				c.logger.Error("finished with error",
+				if atomic.LoadInt32(&c.wantStop) == 1 {
+					c.logger.Error("finished with error",
+						slog.Any("error", err),
+					)
+
+					break
+				}
+
+				c.logger.Error("failed to connect, retrying",
 					slog.Any("error", err),
+					slog.String("eta", "0.5s"),
 				)
 
-				break
+				time.Sleep(500 * time.Millisecond)
+
+				continue
 			}
 
-			c.logger.Error("got error: will reconnect",
-				slog.Any("error", err),
-				slog.String("eta", "0.5s"),
-			)
+			if setupComplete != nil {
+				close(setupComplete)
+				setupComplete = nil
+			}
 
-			time.Sleep(500 * time.Millisecond)
+			err = wait()
+			if err != nil {
+				if atomic.LoadInt32(&c.wantStop) == 1 {
+					c.logger.Error("finished with error",
+						slog.Any("error", err),
+					)
+
+					break
+				}
+
+				c.logger.Error("connection closed, reconnecting",
+					slog.Any("error", err),
+					slog.String("eta", "0.5s"),
+				)
+
+				time.Sleep(500 * time.Millisecond)
+
+				continue
+			}
+
+			c.logger.Debug("finished gracefully")
+
+			break
 		}
 
 		// Tell c.Close() that we have finished shutdown and that it can return.
 		close(c.didStopChan)
 
 		// Ensure we can start again.
-		atomic.StoreInt32(&c.isRunning, 0)
+		c.isRunning.Store(false)
 	}()
+
+	// Wait for initial setup to complete.
+	err := <-setupComplete
+	if err != nil {
+		// This will not set isRunning to true. Since we are not running.
+		return err
+	}
+
+	// We are now running.
+	c.isRunning.Store(true)
+
+	return nil
 }
 
 // runOnce will connect amqp, setup all the amqp channels, run the publisher
 // and run the replies consumer. The method will also return the underlying
 // amqp error if the underlying connection or socket isn't gracefully closed.
 // It will also block until the connection is gone.
-func (c *Client) runOnce() error {
+func (c *Client) runOnce() (func() error, error) {
 	c.logger.Debug("starting up...")
 
 	inputConn, outputConn, err := createConnections(c.url, c.name, c.dialconfig)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	defer inputConn.Close()
-	defer outputConn.Close()
 
 	inputCh, outputCh, err := createChannels(inputConn, outputConn)
 	if err != nil {
-		return err
-	}
+		inputConn.Close()
+		outputConn.Close()
 
-	defer inputCh.Close()
-	defer outputCh.Close()
+		return nil, err
+	}
 
 	// Notify everyone that the client has started. Runs sequentially so there
 	// isn't any race conditions when working with the connections or channels.
@@ -368,7 +434,10 @@ func (c *Client) runOnce() error {
 
 	repliesConsumerTag, err := c.runRepliesConsumer(inputCh, &wg)
 	if err != nil {
-		return err
+		inputConn.Close()
+		outputConn.Close()
+
+		return nil, err
 	}
 
 	if c.confirmMode {
@@ -378,7 +447,10 @@ func (c *Client) runOnce() error {
 			false, // no-wait.
 		)
 		if err != nil {
-			return err
+			inputConn.Close()
+			outputConn.Close()
+
+			return nil, err
 		}
 
 		wg.Add(1) // Confirms consumer.
@@ -394,36 +466,41 @@ func (c *Client) runOnce() error {
 
 	go c.runPublisher(outputCh, &wg)
 
-	_, err = monitorAndWait(
-		make(chan struct{}),
-		c.stopChan,
-		notifyInputConnClose,
-		notifyOutputConnClose,
-		notifyInputChClose,
-		notifyOutputChClose,
-	)
-	if err != nil {
-		// We don't have a graceful exit, just return the error.
-		return err
-	}
+	return func() error {
+		defer inputConn.Close()
+		defer outputConn.Close()
 
-	// 1. Stop the publisher by closing the output channel. This also closes
-	// the confirms consumer if it's running.
-	outputCh.Close()
+		_, err = monitorAndWait(
+			make(chan struct{}),
+			c.stopChan,
+			notifyInputConnClose,
+			notifyOutputConnClose,
+			notifyInputChClose,
+			notifyOutputChClose,
+		)
+		if err != nil {
+			// We don't have a graceful exit, just return the error.
+			return err
+		}
 
-	// 2. Stop the replies consumer by canceling the consumer.
-	err = inputCh.Cancel(repliesConsumerTag, false)
-	if err != nil {
-		return err
-	}
+		// 1. Stop the publisher by closing the output channel. This also closes
+		// the confirms consumer if it's running.
+		outputCh.Close()
 
-	// 3. The consumer is stopped, we can now close the input channel.
-	inputCh.Close()
+		// 2. Stop the replies consumer by canceling the consumer.
+		err = inputCh.Cancel(repliesConsumerTag, false)
+		if err != nil {
+			return err
+		}
 
-	// 3. Wait for all the go routines to finish.
-	wg.Wait()
+		// 3. The consumer is stopped, we can now close the input channel.
+		inputCh.Close()
 
-	return nil
+		// 3. Wait for all the go routines to finish.
+		wg.Wait()
+
+		return nil
+	}, nil
 }
 
 // runPublisher consumes messages from chan requests and publishes them on the
@@ -726,7 +803,13 @@ func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 
 func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// Ensure that the publisher is running.
-	c.runForever()
+	err := c.RunForever()
+	if err != nil {
+		// In case of connection errors. If multiple clients call Send
+		// concurrently wile getting errors, each of those calls will try to
+		// connect sequentially.
+		return nil, err
+	}
 
 	// This is where we get the responses back.
 	// If this request doesn't want a reply back (by setting Reply to false)
@@ -787,7 +870,10 @@ func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 // the user should ensure that all calls to c.Send() has returned before calling
 // c.Stop().
 func (c *Client) Stop() {
-	if atomic.LoadInt32(&c.isRunning) != 1 {
+	c.isConnectingMu.Lock()
+	defer c.isConnectingMu.Unlock()
+
+	if !c.isRunning.Load() {
 		return
 	}
 
