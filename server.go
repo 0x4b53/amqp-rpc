@@ -31,8 +31,8 @@ type Server struct {
 	// url is the URL where the server should dial to start subscribing.
 	url string
 
-	// onStarteds will all be executed after the server has finished startup.
-	onStarteds []OnStartedFunc
+	// onConnectedFuncs will all be executed after the server has finished startup.
+	onConnectedFuncs []OnConnectedFunc
 
 	// bindings is a list of HandlerBinding that holds information about the
 	// bindings and it's handlers.
@@ -163,28 +163,25 @@ func (s *Server) AddMiddleware(m ServerMiddlewareFunc) *Server {
 	return s
 }
 
-/*
-OnStarted can be used to hook into the connections/channels that the server is
-using. This can be useful if you want more control over amqp directly. The
-OnStartedFunc will be executed after ListenAndServe is called. Note that this
-function is blocking and the server won't continue it's startup until it has
-finished executing.
-
-	server := NewServer(url)
-	server.OnStarted(func(inConn, outConn *amqp.Connection, inChan, outChan *amqp.Channel) {
-		// Do something with amqp connections/channels.
-	})
-*/
-func (s *Server) OnStarted(f OnStartedFunc) {
-	s.onStarteds = append(s.onStarteds, f)
+// OnConnected can be used to hook into the connections/channels that the server
+// is using. This can be useful if you want more control over amqp directly. Note
+// that this is blocking and the server won't continue it's startup until this
+// function has finished executing.
+//
+//	server := NewServer(url)
+//	server.OnConnected(func(inConn, outConn *amqp.Connection, inChan, outChan *amqp.Channel) {
+//	// Do something with amqp connections/channels.
+//	})
+func (s *Server) OnConnected(f OnConnectedFunc) {
+	s.onConnectedFuncs = append(s.onConnectedFuncs, f)
 }
 
-// notifyStarted will notify everyone who listens to the OnStarted event.
-// Runs sequentially so there isn't any race conditions when working with the
-// connections or channels.
+// notifyStarted will notify everyone who listens to the [Server.OnConnected]
+// event. Runs sequentially so there isn't any race conditions when working
+// with the connections or channels.
 func (s *Server) notifyStarted(inputConn, outputConn *amqp.Connection, inputCh, outputCh *amqp.Channel) {
-	for _, onStarted := range s.onStarteds {
-		onStarted(inputConn, outputConn, inputCh, outputCh)
+	for _, onConnected := range s.onConnectedFuncs {
+		onConnected(inputConn, outputConn, inputCh, outputCh)
 	}
 }
 
@@ -271,9 +268,6 @@ func (s *Server) listenAndServe() (bool, error) {
 	defer inputCh.Close()
 	defer outputCh.Close()
 
-	// Notify everyone that the server has started.
-	s.notifyStarted(inputConn, outputConn, inputCh, outputCh)
-
 	// Start listening on NotifyClose before we properly begin so that we avoid
 	// race when the consumer or publisher starts work before we call
 	// monitorAndWait. All have a buffer of 1 as recommended by amqp-go.
@@ -306,6 +300,9 @@ func (s *Server) listenAndServe() (bool, error) {
 	responderWg.Add(1) // Sync the waitgroup to this goroutine.
 
 	go s.responder(outputCh, &responderWg)
+
+	// Notify everyone that the server has started.
+	s.notifyStarted(inputConn, outputConn, inputCh, outputCh)
 
 	shouldRestart, err := monitorAndWait(
 		s.restartChan,

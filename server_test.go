@@ -129,7 +129,7 @@ func TestServerReconnect(t *testing.T) {
 		fmt.Fprintf(rw, "Hello")
 	}).WithAutoAck(false))
 
-	stop := startAndWait(s)
+	stop := startServerAndWait(s)
 	defer stop()
 
 	c := NewClient(testURL)
@@ -155,7 +155,7 @@ func TestManualRestart(t *testing.T) {
 	s := NewServer(testURL).
 		WithRestartChan(restartChan)
 
-	s.OnStarted(func(_, _ *amqp.Connection, _, _ *amqp.Channel) {
+	s.OnConnected(func(_, _ *amqp.Connection, _, _ *amqp.Channel) {
 		hasStarted <- struct{}{}
 	})
 
@@ -168,7 +168,7 @@ func TestManualRestart(t *testing.T) {
 	// Wait for the initial startup signal.
 	go func() { <-hasStarted }()
 
-	stop := startAndWait(s)
+	stop := startServerAndWait(s)
 	defer stop()
 
 	c := NewClient(testURL)
@@ -192,11 +192,11 @@ func TestManualRestart(t *testing.T) {
 	assert.Equal(t, []byte("Hello"), reply.Body)
 }
 
-func TestServerOnStarted(t *testing.T) {
+func TestServerOnConnected(t *testing.T) {
 	errs := make(chan string, 4)
 
 	s := NewServer(testURL)
-	s.OnStarted(func(inC, outC *amqp.Connection, inCh, outCh *amqp.Channel) {
+	s.OnConnected(func(inC, outC *amqp.Connection, inCh, outCh *amqp.Channel) {
 		if inC == nil {
 			errs <- "inC was nil"
 		}
@@ -216,7 +216,7 @@ func TestServerOnStarted(t *testing.T) {
 		close(errs)
 	})
 
-	stop := startAndWait(s)
+	stop := startServerAndWait(s)
 	defer stop()
 
 	select {
@@ -225,7 +225,7 @@ func TestServerOnStarted(t *testing.T) {
 			t.Fatal(e)
 		}
 	case <-time.After(time.Second):
-		t.Error("OnStarted was never called")
+		t.Error("OnConnected was never called")
 	}
 }
 
@@ -238,7 +238,7 @@ func TestStopWhenStarting(t *testing.T) {
 		close(done)
 	}()
 
-	// Cannot use OnStarted() since we won't successfully start.
+	// Cannot use OnConnected() since we won't successfully start.
 	time.Sleep(10 * time.Millisecond)
 	s.Stop()
 

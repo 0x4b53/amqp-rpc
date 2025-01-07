@@ -374,18 +374,18 @@ For more examples of client middlewares, see [examples/middleware].
 ## Connection hooks
 
 You often want to know when a connection has been established and when it comes
-to RabbitMQ also perform some post connection setup. This is enabled by the fact
-that both the server and the client holds a list of `OnStarted`. The function
-receives the incoming connection, outgoing connection, incoming channel and
-outgoing channel.
+to RabbitMQ also perform some post connection setup. This is enabled by the
+fact that both the server and the client holds a list of `OnConnectedFunc`. The
+function receives the incoming connection, outgoing connection, incoming
+channel and outgoing channel.
 
 ```go
-type OnStartedFunc func(inputConn, outputConn *amqp.Connection, inputChannel, outputChannel *amqp.Channel)
+type OnConnectedFunc func(inputConn, outputConn *amqp.Connection, inputChannel, outputChannel *amqp.Channel)
 ```
 
 ```go
 server := NewServer("amqp://guest:guest@localhost:5672").
-    OnStarted(func(inConn, outConn *amqp.Connection, inChan, outChan *amqp.Channel) {
+    OnConnected(func(inConn, outConn *amqp.Connection, inChan, outChan *amqp.Channel) {
         // Do something after connection here...
     })
 }

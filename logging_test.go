@@ -23,7 +23,7 @@ func TestServerLogging(t *testing.T) {
 		s := NewServer(testURL).
 			WithLogger(logger)
 
-		stop := startAndWait(s)
+		stop := startServerAndWait(s)
 		stop()
 
 		assert.NoError(t, writer.Close())
