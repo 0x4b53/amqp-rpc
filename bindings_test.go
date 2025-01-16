@@ -92,7 +92,7 @@ func TestSkipQueueDeclare(t *testing.T) {
 			WithQueueDeclareArg("x-expires", 33),
 	)
 
-	stop = startAndWait(s)
+	stop = startServerAndWait(s)
 	defer stop()
 
 	response, err = c.Send(NewRequest().WithRoutingKey(queueName))

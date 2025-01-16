@@ -20,7 +20,7 @@ func TestRequest(t *testing.T) {
 		fmt.Fprintf(rw, "Got message: %s", d.Body)
 	}))
 
-	stop := startAndWait(s)
+	stop := startServerAndWait(s)
 	defer stop()
 
 	client := NewClient(url)

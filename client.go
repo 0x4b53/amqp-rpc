@@ -109,8 +109,8 @@ type Client struct {
 	// chained and called. This field can be overridden to simplify testing.
 	Sender SendFunc
 
-	// onStarteds will all be executed after the client has connected.
-	onStarteds []OnStartedFunc
+	// onConnectedFuncs will all be executed after the client has connected.
+	onConnectedFuncs []OnConnectedFunc
 }
 
 // NewClient will return a pointer to a new Client. There are two ways to manage
@@ -151,21 +151,17 @@ func NewClient(url string) *Client {
 	return c
 }
 
-/*
-OnStarted can be used to hook into the connections/channels that the client is
-using. This can be useful if you want more control over amqp directly.
-Note that since the client is lazy and won't connect until the first .Send()
-the provided OnStartedFunc won't be called until then. Also note that this
-is blocking and the client won't continue it's startup until this function has
-finished executing.
-
-	client := NewClient(url)
-	client.OnStarted(func(inConn, outConn *amqp.Connection, inChan, outChan *amqp.Channel) {
-		// Do something with amqp connections/channels.
-	})
-*/
-func (c *Client) OnStarted(f OnStartedFunc) {
-	c.onStarteds = append(c.onStarteds, f)
+// OnConnected can be used to hook into the connections/channels that the client
+// is using. This can be useful if you want more control over amqp directly. Note
+// that this is blocking and the client won't continue it's startup until this
+// function has finished executing.
+//
+//	client := NewClient(url)
+//	client.OnConnected(func(inConn, outConn *amqp.Connection, inChan, outChan *amqp.Channel) {
+//		// Do something with amqp connections/channels.
+//	})
+func (c *Client) OnConnected(f OnConnectedFunc) {
+	c.onConnectedFuncs = append(c.onConnectedFuncs, f)
 }
 
 // WithName sets the name of the client, it will be used the creation of the
@@ -270,11 +266,10 @@ func (c *Client) setDefaults() {
 	c.confirmMode = true
 }
 
-// runForever will connect amqp, setup all the amqp channels, run the publisher
-// and run the replies consumer. The method will also automatically restart
-// the setup if the underlying connection or socket isn't gracefully closed.
-// This will also block until the client is gracefully stopped.
-func (c *Client) runForever() {
+// Connect will start the client and run it forever, reconnecting
+// automatically when needed. Note that this will return as soon as the setup
+// is started, to wait for the setup to be completed use [Client.OnConnected].
+func (c *Client) Connect() {
 	if !atomic.CompareAndSwapInt32(&c.isRunning, 0, 1) {
 		// Already running.
 		return
@@ -348,12 +343,6 @@ func (c *Client) runOnce() error {
 	defer inputCh.Close()
 	defer outputCh.Close()
 
-	// Notify everyone that the client has started. Runs sequentially so there
-	// isn't any race conditions when working with the connections or channels.
-	for _, onStarted := range c.onStarteds {
-		onStarted(inputConn, outputConn, inputCh, outputCh)
-	}
-
 	// Start listening on NotifyClose before we properly begin so that we avoid
 	// race when the consumer or publisher starts work before we call
 	// monitorAndWait. All have a buffer of 1 as recommended by amqp-go.
@@ -393,6 +382,12 @@ func (c *Client) runOnce() error {
 	wg.Add(1) // Publisher.
 
 	go c.runPublisher(outputCh, &wg)
+
+	// Notify everyone that the client has started. Runs sequentially so there
+	// isn't any race conditions when working with the connections or channels.
+	for _, onConnected := range c.onConnectedFuncs {
+		onConnected(inputConn, outputConn, inputCh, outputCh)
+	}
 
 	_, err = monitorAndWait(
 		make(chan struct{}),
@@ -726,7 +721,7 @@ func (c *Client) Send(r *Request) (*amqp.Delivery, error) {
 
 func (c *Client) send(r *Request) (*amqp.Delivery, error) {
 	// Ensure that the publisher is running.
-	c.runForever()
+	c.Connect()
 
 	// This is where we get the responses back.
 	// If this request doesn't want a reply back (by setting Reply to false)

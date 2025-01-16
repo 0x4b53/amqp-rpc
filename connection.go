@@ -13,11 +13,11 @@ import (
 // when said shutdown happens.
 var ErrUnexpectedConnClosed = errors.New("unexpected connection close without specific error")
 
-// OnStartedFunc can be registered at Server.OnStarted(f) and
-// Client.OnStarted(f). This is used when you want to do more setup on the
+// OnConnectedFunc can be registered with [Server.OnConnected] and
+// [Client.OnConnected]. This is used when you want to do more setup on the
 // connections and/or channels from amqp, for example setting Qos,
 // NotifyPublish etc.
-type OnStartedFunc func(inputConn, outputConn *amqp.Connection, inputChannel, outputChannel *amqp.Channel)
+type OnConnectedFunc func(inputConn, outputConn *amqp.Connection, inputChannel, outputChannel *amqp.Channel)
 
 func monitorAndWait(
 	restartChan,

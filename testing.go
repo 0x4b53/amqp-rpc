@@ -53,13 +53,13 @@ func (ma *MockAcknowledger) Reject(_ uint64, _ bool) error {
 	return nil
 }
 
-// startAndWait will start s by running ListenAndServe, it will then block
+// startServerAndWait will start s by running ListenAndServe, it will then block
 // until the server is started.
-func startAndWait(s *Server) func() {
+func startServerAndWait(s *Server) func() {
 	started := make(chan struct{})
 	once := sync.Once{}
 
-	s.OnStarted(func(_, _ *amqp.Connection, _, _ *amqp.Channel) {
+	s.OnConnected(func(_, _ *amqp.Connection, _, _ *amqp.Channel) {
 		once.Do(func() {
 			close(started)
 		})
@@ -78,6 +78,21 @@ func startAndWait(s *Server) func() {
 		s.Stop()
 		<-done
 	}
+}
+
+func startClientAndWait(c *Client) {
+	started := make(chan struct{})
+	once := sync.Once{}
+
+	c.OnConnected(func(_, _ *amqp.Connection, _, _ *amqp.Channel) {
+		once.Do(func() {
+			close(started)
+		})
+	})
+
+	c.Connect()
+
+	<-started
 }
 
 func deleteQueue(name string) {
@@ -226,17 +241,9 @@ func initTest(t *testing.T) (server *Server, client *Client, start, stop func())
 	}
 
 	start = func() {
-		stopServer = startAndWait(server)
+		stopServer = startServerAndWait(server)
 
-		// Ensure the client is started.
-		_, err := client.Send(
-			NewRequest().
-				WithRoutingKey(defaultTestQueue).
-				WithMandatory(true).
-				WithResponse(true),
-		)
-
-		require.NoError(t, err)
+		startClientAndWait(client)
 	}
 
 	return
