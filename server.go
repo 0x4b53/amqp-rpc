@@ -393,7 +393,7 @@ func (s *Server) consume(binding HandlerBinding, inputCh *amqp.Channel, wg *sync
 	// Attach the middlewares to the handler.
 	handler := ServerMiddlewareChain(binding.Handler, s.middlewares...)
 
-	go s.runHandler(handler, deliveries, queueName, wg)
+	go s.runHandler(handler, deliveries, queueName, wg, inputCh)
 
 	return consumerTag, nil
 }
@@ -403,6 +403,7 @@ func (s *Server) runHandler(
 	deliveries <-chan amqp.Delivery,
 	queueName string,
 	wg *sync.WaitGroup,
+	inputChannel *amqp.Channel,
 ) {
 	wg.Add(1)
 	defer wg.Done()
@@ -435,6 +436,9 @@ func (s *Server) runHandler(
 		ctx := context.Background()
 		ctx = ContextWithShutdownChan(ctx, s.stopChan)
 		ctx = ContextWithQueueName(ctx, queueName)
+
+		acknowledger := NewSafeAcknowledgeHandler(delivery.Acknowledger, inputChannel)
+		delivery.Acknowledger = acknowledger
 
 		go func(delivery amqp.Delivery) {
 			handler(ctx, &rw, delivery)
