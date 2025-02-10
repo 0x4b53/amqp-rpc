@@ -10,20 +10,15 @@ import (
 )
 
 // AckDelivery is a middleware that will acknowledge the delivery after the
-// handler has been executed.
-func AckDelivery() amqprpc.ServerMiddlewareFunc {
+// handler has been executed. If the Ack fails the error and the `amqp.Delivery`
+// will be passed to the `OnErrFunc`.
+func AckDelivery(logOnError bool) amqprpc.ServerMiddlewareFunc {
 	return func(next amqprpc.HandlerFunc) amqprpc.HandlerFunc {
 		return func(ctx context.Context, rw *amqprpc.ResponseWriter, d amqp.Delivery) {
 			next(ctx, rw, d)
 
-			err := d.Ack(false)
-			if err != nil {
-				slog.ErrorContext(
-					context.Background(),
-					"acking message",
-					"correlation_id",
-					d.CorrelationId,
-				)
+			if err := d.Ack(false); err != nil && logOnError {
+				slog.ErrorContext(ctx, "failed to ack message", slog.Any("error", err))
 			}
 		}
 	}

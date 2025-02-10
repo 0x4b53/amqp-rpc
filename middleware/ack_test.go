@@ -54,7 +54,7 @@ func TestAckDelivery(t *testing.T) {
 			// Block until ready.
 			<-isListening
 
-			handler := AckDelivery()(tt.handler)
+			handler := AckDelivery(false)(tt.handler)
 
 			rw := amqprpc.ResponseWriter{Publishing: &amqp.Publishing{}}
 			d := amqp.Delivery{Acknowledger: acknowledger, CorrelationId: "id-1234"}

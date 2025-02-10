@@ -3,6 +3,8 @@ package amqprpc
 import (
 	"context"
 	"fmt"
+	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -320,4 +322,71 @@ func TestContextDoneWhenServerStopped(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatalf("handler was never called")
 	}
+}
+
+func TestCloseChannelOnAckFailure(t *testing.T) {
+	done := make(chan struct{})
+	server, client, start, stop := initTest(t)
+
+	var (
+		consumerConn   net.Conn
+		hasClosedOnce  atomic.Bool
+		msgRedelivered bool
+	)
+
+	server.
+		WithDialConfig(amqp.Config{Dial: func(network, addr string) (net.Conn, error) {
+			conn, err := amqp.DefaultDial(1*time.Second)(network, addr)
+
+			// we only want to close the consumer connection which is the first connection to be setup
+			if consumerConn == nil {
+				consumerConn = conn
+			}
+
+			return conn, err
+		}})
+
+	server.Bind(DirectBinding("close.channel.test", func(_ context.Context, rw *ResponseWriter, d amqp.Delivery) {
+		if hasClosedOnce.CompareAndSwap(false, true) {
+			require.False(t, d.Redelivered)
+
+			// Closing only for writing ensures that the amqp.Connection
+			// doesn't know that it's been closed. But will make the ack fail.
+			c, ok := consumerConn.(*net.TCPConn)
+			require.True(t, ok)
+			require.NoError(t, c.CloseWrite())
+
+			// Ack returns error because the connection is closed.
+			require.Error(t, d.Ack(false))
+		} else {
+			require.True(t, d.Redelivered)
+			msgRedelivered = true
+
+			require.False(t, d.Acknowledger.(*Acknowledger).Handled.Load())
+
+			// We can now ack the message.
+			require.NoError(t, d.Ack(false))
+
+			// done testing
+			done <- struct{}{}
+		}
+	}).WithAutoAck(false))
+
+	start()
+
+	d, err := client.Send(NewRequest().WithRoutingKey("close.channel.test").WithResponse(false))
+	require.NoError(t, err)
+	require.Nil(t, d) // no response expected
+
+	defer stop()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		// No success within 10 seconds
+		t.Error("expected re-delivery but no re-delivery happened")
+	}
+
+	// make sure the message has been redelivered
+	assert.True(t, msgRedelivered)
 }
