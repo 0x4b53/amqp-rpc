@@ -436,6 +436,9 @@ func (s *Server) runHandler(
 		ctx = ContextWithShutdownChan(ctx, s.stopChan)
 		ctx = ContextWithQueueName(ctx, queueName)
 
+		acknowledger := NewAcknowledger(delivery.Acknowledger)
+		delivery.Acknowledger = acknowledger
+
 		go func(delivery amqp.Delivery) {
 			handler(ctx, &rw, delivery)
 

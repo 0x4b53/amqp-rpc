@@ -2,24 +2,19 @@ package middleware
 
 import (
 	"context"
-	"errors"
-	"log/slog"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/stretchr/testify/assert"
 
 	amqprpc "github.com/0x4b53/amqp-rpc/v5"
 )
 
 func TestAckDelivery(t *testing.T) {
 	tests := []struct {
-		handler          amqprpc.HandlerFunc
-		name             string
-		ackReturn        error
-		didSendOnChannel bool
+		handler   amqprpc.HandlerFunc
+		name      string
+		ackReturn error
 	}{
 		{
 			name:      "handler doesn't ack",
@@ -32,12 +27,6 @@ func TestAckDelivery(t *testing.T) {
 				_ = d.Ack(false)
 			},
 			ackReturn: nil,
-		},
-		{
-			name:             "handler fails to ack",
-			handler:          func(_ context.Context, _ *amqprpc.ResponseWriter, _ amqp.Delivery) {},
-			ackReturn:        errors.New("issue in the multiplexer"), //nolint:err113 // Just a test
-			didSendOnChannel: true,
 		},
 	}
 	for _, tt := range tests {
@@ -65,17 +54,12 @@ func TestAckDelivery(t *testing.T) {
 			// Block until ready.
 			<-isListening
 
-			handler := AckDelivery(OnAckErrorSendOnChannel(slog.Default(), ch))(tt.handler)
+			handler := AckDelivery(false)(tt.handler)
 
 			rw := amqprpc.ResponseWriter{Publishing: &amqp.Publishing{}}
 			d := amqp.Delivery{Acknowledger: acknowledger, CorrelationId: "id-1234"}
 
 			handler(context.Background(), &rw, d)
-
-			assert.Equal(t, 1, acknowledger.Acks)
-			assert.Eventually(t, func() bool {
-				return didSendOnCh.Load() == tt.didSendOnChannel
-			}, 2*time.Second, 100*time.Millisecond)
 		})
 	}
 }

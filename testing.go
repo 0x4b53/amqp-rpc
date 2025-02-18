@@ -27,6 +27,7 @@ type MockAcknowledger struct {
 	Acks    int
 	Nacks   int
 	Rejects int
+	Closes  int
 	OnAckFn func() error
 }
 
@@ -50,6 +51,12 @@ func (ma *MockAcknowledger) Nack(_ uint64, _, _ bool) error {
 // Reject increases Rejects.
 func (ma *MockAcknowledger) Reject(_ uint64, _ bool) error {
 	ma.Rejects++
+	return nil
+}
+
+// Close increses Closes.
+func (ma *MockAcknowledger) Close() error {
+	ma.Closes++
 	return nil
 }
 
