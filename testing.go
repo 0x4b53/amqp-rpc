@@ -3,7 +3,9 @@ package amqprpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"sync"
@@ -254,4 +256,26 @@ func initTest(t *testing.T) (server *Server, client *Client, start, stop func())
 	}
 
 	return
+}
+
+// heartbeatFailer is a net.Conn that can be configured to fail heartbeats.
+type heartbeatFailer struct {
+	net.Conn
+	failHeartbeats bool
+}
+
+func (c *heartbeatFailer) Write(b []byte) (n int, err error) {
+	if c.failHeartbeats {
+		// The first byte is the type of frame. The heartbeat frame is 8.
+		// Some references:
+		// amqp091-go/spec091.go/frameHeartbeat
+		// https://github.com/rabbitmq/amqp091-go/blob/main/spec/amqp0-9-1.stripped.extended.xml#L48
+		// amqp091-go/write.go/writeFrame()
+		// https://www.rabbitmq.com/resources/specs/amqp0-9-1.pdf (page 23 chapter 2.3.5 Frame Details)
+		if len(b) > 0 && b[0] == 8 {
+			return 0, errors.New("heartbeat must fail")
+		}
+	}
+
+	return c.Conn.Write(b)
 }

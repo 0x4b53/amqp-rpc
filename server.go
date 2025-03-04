@@ -72,6 +72,10 @@ type Server struct {
 
 	// logger is the logger used for logging.
 	logger *slog.Logger
+
+	// isConnected is true when the server is fully connected and able to
+	// consume messages.
+	isConnected atomic.Bool
 }
 
 // NewServer will return a pointer to a new Server.
@@ -282,6 +286,13 @@ func (s *Server) listenAndServe() (bool, error) {
 		return false, err
 	}
 
+	// This WaitGroup will reach 0 when the responder() has finished sending
+	// all responses.
+	responderWg := sync.WaitGroup{}
+	responderWg.Add(1) // Sync the waitgroup to this goroutine.
+
+	go s.responder(outputCh, &responderWg)
+
 	// Setup a WaitGroup for use by consume(). This WaitGroup will be 0
 	// when all consumers are finished consuming messages.
 	consumersWg := sync.WaitGroup{}
@@ -294,12 +305,7 @@ func (s *Server) listenAndServe() (bool, error) {
 		return false, err
 	}
 
-	// This WaitGroup will reach 0 when the responder() has finished sending
-	// all responses.
-	responderWg := sync.WaitGroup{}
-	responderWg.Add(1) // Sync the waitgroup to this goroutine.
-
-	go s.responder(outputCh, &responderWg)
+	s.isConnected.Store(true)
 
 	// Notify everyone that the server has started.
 	s.notifyStarted(inputConn, outputConn, inputCh, outputCh)
@@ -312,6 +318,9 @@ func (s *Server) listenAndServe() (bool, error) {
 		notifyInputChClose,
 		notifyOutputChClose,
 	)
+
+	s.isConnected.Store(false)
+
 	if err != nil {
 		return shouldRestart, err
 	}
@@ -531,6 +540,12 @@ func (s *Server) Restart() {
 	default:
 		s.logger.Debug("no listener on restartChan, ensure server is running")
 	}
+}
+
+// IsConnected returns true when the server is connected and ready to receive and
+// respond to messages on all queues.
+func (s *Server) IsConnected() bool {
+	return s.isConnected.Load()
 }
 
 // cancelConsumers will cancel the specified consumers.

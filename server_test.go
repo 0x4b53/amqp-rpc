@@ -390,3 +390,65 @@ func TestCloseChannelOnAckFailure(t *testing.T) {
 	// make sure the message has been redelivered
 	assert.True(t, msgRedelivered)
 }
+
+func TestIsConnected(t *testing.T) {
+	server, _, start, stop := initTest(t)
+	defer stop()
+
+	require.False(t, server.IsConnected())
+
+	start()
+
+	require.True(t, server.IsConnected())
+
+	stop()
+
+	require.False(t, server.IsConnected())
+}
+
+func TestReconnectsOnFailedHeartbeats(t *testing.T) {
+	server, _, start, stop := initTest(t)
+	defer stop()
+
+	var consumerConn *heartbeatFailer
+
+	canConnect := make(chan struct{}, 2)
+
+	server.WithDialConfig(amqp.Config{
+		Heartbeat: 1 * time.Second,
+		Dial: func(network, addr string) (net.Conn, error) {
+			<-canConnect
+
+			conn, err := amqp.DefaultDial(time.Second)(network, addr)
+
+			// We are only interested in the consumer connection, which is the
+			// first one to be dialed.
+			if consumerConn == nil {
+				consumerConn = &heartbeatFailer{conn, false}
+				return consumerConn, err
+			}
+
+			return conn, err
+		},
+	})
+
+	canConnect <- struct{}{} // input
+	canConnect <- struct{}{} // output
+
+	start()
+
+	require.True(t, server.isConnected.Load())
+
+	consumerConn.failHeartbeats = true
+
+	require.Eventually(t, func() bool {
+		return !server.IsConnected()
+	}, 10*time.Second, time.Millisecond)
+
+	canConnect <- struct{}{} // input
+	canConnect <- struct{}{} // output
+
+	require.Eventually(t, func() bool {
+		return server.IsConnected()
+	}, 10*time.Second, time.Millisecond)
+}
