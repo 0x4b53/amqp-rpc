@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -192,6 +193,170 @@ func TestManualRestart(t *testing.T) {
 	reply, err = c.Send(request)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("Hello"), reply.Body)
+}
+
+func TestServerOnErrorFunc(t *testing.T) {
+	t.Run("OnErrorFunc called when auth error", func(t *testing.T) {
+		t.Parallel()
+
+		s := NewServer(strings.Replace(testURL, "guest:guest", "guest:wrong", 1))
+
+		t.Cleanup(func() {
+			s.Stop()
+		})
+
+		var wasCalled atomic.Bool
+
+		s.OnError(func(err error) {
+			assert.ErrorIs(t, err, ErrConnectFailed)
+
+			wasCalled.Store(true)
+		})
+
+		go s.ListenAndServe()
+
+		require.Eventually(t, wasCalled.Load, 5*time.Second, time.Millisecond)
+	})
+
+	t.Run("OnErrorFunc called when bad exchenge name used when binding", func(t *testing.T) {
+		t.Parallel()
+
+		s := NewServer(testURL)
+
+		t.Cleanup(func() {
+			s.Stop()
+		})
+
+		s.Bind(
+			DirectBinding("test.queue", func(_ context.Context, rw *ResponseWriter, _ amqp.Delivery) {}).
+				WithExchangeName("non-existing-exchange"),
+		)
+
+		var wasCalled atomic.Bool
+
+		s.OnError(func(err error) {
+			assert.ErrorIs(t, err, ErrConsumerStartFailed)
+
+			wasCalled.Store(true)
+		})
+
+		go s.ListenAndServe()
+
+		require.Eventually(t, wasCalled.Load, 5*time.Second, time.Millisecond)
+	})
+
+	t.Run("OnErrorFunc is called when connection closed unexpectedly", func(t *testing.T) {
+		t.Parallel()
+
+		s := NewServer(testURL)
+
+		t.Cleanup(func() {
+			s.Stop()
+		})
+
+		var wasCalled atomic.Bool
+
+		s.OnError(func(err error) {
+			assert.ErrorIs(t, err, ErrUnexpectedConnClosed)
+
+			wasCalled.Store(true)
+		})
+
+		var conn atomic.Pointer[amqp.Connection]
+
+		s.OnConnected(func(c, _ *amqp.Connection, _, _ *amqp.Channel) {
+			conn.Store(c)
+		})
+
+		go s.ListenAndServe()
+
+		// Wait for the Server to be connected.
+		require.Eventually(t, func() bool { return conn.Load() != nil }, 5*time.Second, time.Millisecond)
+
+		// Close the connection to trigger the error.
+		require.NoError(t, conn.Load().Close())
+
+		require.Eventually(t, wasCalled.Load, 5*time.Second, time.Millisecond)
+	})
+
+	t.Run("don't reconnect if server stopped in OnErrorFunc", func(t *testing.T) {
+		t.Parallel()
+
+		s := NewServer(strings.Replace(testURL, "guest:guest", "guest:wrong", 1))
+
+		t.Cleanup(func() {
+			s.Stop()
+		})
+
+		ch := make(chan struct{})
+
+		s.OnError(func(_ error) {
+			ch <- struct{}{}
+
+			s.Stop()
+		})
+
+		go s.ListenAndServe()
+
+		select {
+		case <-ch: // expected
+		case <-time.After(5 * time.Second):
+			t.Fatal("expected error but didn't get one")
+		}
+
+		select {
+		case <-ch:
+			t.Fatal("tried to connect after Server.Stop() called")
+		case <-time.After(time.Second):
+		}
+	})
+
+	t.Run("OnError is not triggered when server is stopped", func(t *testing.T) {
+		t.Parallel()
+
+		s := NewServer(testURL)
+
+		t.Cleanup(func() {
+			s.Stop()
+		})
+
+		gotError := make(chan error, 1)
+		stopped := make(chan struct{}, 1)
+		started := make(chan struct{}, 1)
+
+		s.OnError(func(err error) {
+			gotError <- err
+		})
+
+		s.OnConnected(func(_, _ *amqp.Connection, _, _ *amqp.Channel) {
+			started <- struct{}{}
+		})
+
+		go func() {
+			s.ListenAndServe()
+			stopped <- struct{}{}
+		}()
+
+		select {
+		case <-started:
+		case <-time.After(10 * time.Second):
+			t.Fatal("server didn't start")
+		}
+
+		s.Stop()
+
+		select {
+		case <-stopped: // OK!
+		case <-time.After(10 * time.Second):
+			t.Fatal("server didn't stop")
+		}
+
+		select {
+		case <-gotError:
+			t.Fatal("got error after server stopped")
+		case <-time.After(time.Second):
+		}
+	})
 }
 
 func TestServerOnConnected(t *testing.T) {

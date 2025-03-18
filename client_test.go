@@ -6,6 +6,7 @@ import (
 	"net"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -659,4 +660,91 @@ func TestClient_OnConnected(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Error("OnConnected was never called")
 	}
+}
+
+func TestClientOnErrorFunc(t *testing.T) {
+	t.Run("OnErrorFunc called when auth error", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewClient(strings.Replace(testURL, "guest:guest", "guest:wrong", 1))
+
+		t.Cleanup(func() {
+			c.Stop()
+		})
+
+		var wasCalled atomic.Bool
+
+		c.OnError(func(err error) {
+			assert.ErrorIs(t, err, ErrConnectFailed)
+
+			wasCalled.Store(true)
+		})
+
+		c.Connect()
+
+		require.Eventually(t, wasCalled.Load, 5*time.Second, time.Millisecond)
+	})
+
+	t.Run("OnErrorFunc is called when connection closed unexpectedly", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewClient(testURL)
+
+		t.Cleanup(func() {
+			c.Stop()
+		})
+
+		var wasCalled atomic.Bool
+
+		c.OnError(func(err error) {
+			assert.ErrorIs(t, err, ErrUnexpectedConnClosed)
+
+			wasCalled.Store(true)
+		})
+
+		var conn atomic.Pointer[amqp.Connection]
+
+		c.OnConnected(func(c, _ *amqp.Connection, _, _ *amqp.Channel) {
+			conn.Store(c)
+		})
+
+		c.Connect()
+
+		// Wait for the client to be connected.
+		require.Eventually(t, func() bool { return conn.Load() != nil }, 5*time.Second, time.Millisecond)
+
+		// Close the connection to trigger the error.
+		require.NoError(t, conn.Load().Close())
+
+		require.Eventually(t, wasCalled.Load, 5*time.Second, time.Millisecond)
+	})
+
+	t.Run("don't reconnect if client stopped in OnErrorFunc", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewClient(strings.Replace(testURL, "guest:guest", "guest:wrong", 1))
+
+		ch := make(chan struct{})
+
+		c.OnError(func(_ error) {
+			ch <- struct{}{}
+
+			// Note the goroutine here.
+			go c.Stop()
+		})
+
+		c.Connect()
+
+		select {
+		case <-ch: // expected
+		case <-time.After(5 * time.Second):
+			t.Fatal("expected error but didn't get one")
+		}
+
+		select {
+		case <-ch:
+			t.Fatal("tried to connect after stop() called")
+		case <-time.After(time.Second):
+		}
+	})
 }

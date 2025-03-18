@@ -3,6 +3,7 @@ package amqprpc
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -33,6 +34,10 @@ type Server struct {
 
 	// onConnectedFuncs will all be executed after the server has finished startup.
 	onConnectedFuncs []OnConnectedFunc
+
+	// onErrorFuncs will execute when an error occurs. For example inside
+	// [Server.listenAndServe].
+	onErrorFuncs []OnErrorFunc
 
 	// bindings is a list of HandlerBinding that holds information about the
 	// bindings and it's handlers.
@@ -176,6 +181,18 @@ func (s *Server) OnConnected(f OnConnectedFunc) {
 	s.onConnectedFuncs = append(s.onConnectedFuncs, f)
 }
 
+// OnError can be used to hook into the errors that the server encounters.
+func (s *Server) OnError(f OnErrorFunc) {
+	s.onErrorFuncs = append(s.onErrorFuncs, f)
+}
+
+// notifyOnErrorFuncs will notify everyone who listens to the [Server.OnError]
+func (s *Server) notifyOnErrorFuncs(err error) {
+	for _, onError := range s.onErrorFuncs {
+		onError(err)
+	}
+}
+
 // notifyStarted will notify everyone who listens to the [Server.OnConnected]
 // event. Runs sequentially so there isn't any race conditions when working
 // with the connections or channels.
@@ -209,6 +226,8 @@ func (s *Server) ListenAndServe() {
 		// connection problems and have call Stop(). If the channel isn't
 		// read/closed within 500ms, retry.
 		if err != nil {
+			s.notifyOnErrorFuncs(err)
+
 			s.logger.Error("got error, will reconnect",
 				"error", err,
 				"eta", "0.5s",
@@ -254,7 +273,7 @@ func (s *Server) listenAndServe() (bool, error) {
 	// -- https://godoc.org/github.com/rabbitmq/amqp091-go#Channel.Consume
 	inputConn, outputConn, err := createConnections(s.url, s.name, s.dialconfig)
 	if err != nil {
-		return false, err
+		return false, errors.Join(err, ErrConnectFailed)
 	}
 
 	defer inputConn.Close()
@@ -262,7 +281,7 @@ func (s *Server) listenAndServe() (bool, error) {
 
 	inputCh, outputCh, err := createChannels(inputConn, outputConn)
 	if err != nil {
-		return false, err
+		return false, errors.Join(err, ErrConnectFailed)
 	}
 
 	defer inputCh.Close()
@@ -279,7 +298,7 @@ func (s *Server) listenAndServe() (bool, error) {
 	// Create any exchanges that must be declared on startup.
 	err = createExchanges(inputCh, s.exchanges)
 	if err != nil {
-		return false, err
+		return false, errors.Join(err, ErrExchangeCreateFailed)
 	}
 
 	// Setup a WaitGroup for use by consume(). This WaitGroup will be 0
@@ -291,7 +310,7 @@ func (s *Server) listenAndServe() (bool, error) {
 	// cancel our consumers.
 	consumerTags, err := s.startConsumers(inputCh, &consumersWg)
 	if err != nil {
-		return false, err
+		return false, errors.Join(err, ErrConsumerStartFailed)
 	}
 
 	// This WaitGroup will reach 0 when the responder() has finished sending
