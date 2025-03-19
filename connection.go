@@ -8,16 +8,36 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// ErrUnexpectedConnClosed is returned by ListenAndServe() if the server
-// shuts down without calling Stop() and if AMQP does not give an error
-// when said shutdown happens.
-var ErrUnexpectedConnClosed = errors.New("unexpected connection close without specific error")
+var (
+	// ErrUnexpectedConnClosed happens when the [Server] or [Client] gets a
+	// connection closed without a specific error from amqp091. This usually
+	// happens if the user calls Close() on a amqp connection or channel.
+	ErrUnexpectedConnClosed = errors.New("unexpected connection close without specific error")
+
+	// ErrConnectFailed can happen if the [Server] or [Client] fails to dial
+	// the amqp server. It can also happen if a recently created connection
+	// fails when creating channels.
+	ErrConnectFailed = errors.New("failed to connect to AMQP")
+
+	// ErrExchangeCreateFailed can happen if the [Server] fails to create the
+	// exchanges given in [Server.WithExchanges].
+	ErrExchangeCreateFailed = errors.New("failed to create exchanges")
+
+	// ErrConsumerStartFailed can happen if the [Server] fails to start the
+	// consumers for bindings created in [Server.Bind]. Or if the [Client]
+	// fails to create it's reply-to consumer.
+	ErrConsumerStartFailed = errors.New("failed to start consumers")
+)
 
 // OnConnectedFunc can be registered with [Server.OnConnected] and
 // [Client.OnConnected]. This is used when you want to do more setup on the
 // connections and/or channels from amqp, for example setting Qos,
 // NotifyPublish etc.
 type OnConnectedFunc func(inputConn, outputConn *amqp.Connection, inputChannel, outputChannel *amqp.Channel)
+
+// OnErrorFunc can be registered with [Server.OnError] and [Client.OnError].
+// This is used when you want to watch for any connection errors that occur.
+type OnErrorFunc func(err error)
 
 func monitorAndWait(
 	restartChan,

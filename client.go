@@ -111,6 +111,10 @@ type Client struct {
 
 	// onConnectedFuncs will all be executed after the client has connected.
 	onConnectedFuncs []OnConnectedFunc
+
+	// onErrorFuncs will all be executed when the client gets errors outside
+	// the normal request-response cycle.
+	onErrorFuncs []OnErrorFunc
 }
 
 // NewClient will return a pointer to a new Client. There are two ways to manage
@@ -162,6 +166,15 @@ func NewClient(url string) *Client {
 //	})
 func (c *Client) OnConnected(f OnConnectedFunc) {
 	c.onConnectedFuncs = append(c.onConnectedFuncs, f)
+}
+
+// OnError can be used to hook into the errors that the client encounters
+// outside the normal request/response cycle. Note that it is not possible to
+// call [Client.Stop] inside f. If you want to stop the client from here, you
+// should use a goroutine. This is because [Client.Stop] will block until the
+// client has stopped.
+func (c *Client) OnError(f OnErrorFunc) {
+	c.onErrorFuncs = append(c.onErrorFuncs, f)
 }
 
 // WithName sets the name of the client, it will be used the creation of the
@@ -266,6 +279,13 @@ func (c *Client) setDefaults() {
 	c.confirmMode = true
 }
 
+// notifyOnErrorFuncs will notify everyone who listens to the [Client.OnError]
+func (c *Client) notifyOnErrorFuncs(err error) {
+	for _, onError := range c.onErrorFuncs {
+		onError(err)
+	}
+}
+
 // Connect will start the client and run it forever, reconnecting
 // automatically when needed. Note that this will return as soon as the setup
 // is started, to wait for the setup to be completed use [Client.OnConnected].
@@ -295,6 +315,8 @@ func (c *Client) Connect() {
 				c.logger.Debug("finished gracefully")
 				break
 			}
+
+			c.notifyOnErrorFuncs(err)
 
 			if atomic.LoadInt32(&c.wantStop) == 1 {
 				c.logger.Error("finished with error",
@@ -329,7 +351,7 @@ func (c *Client) runOnce() error {
 
 	inputConn, outputConn, err := createConnections(c.url, c.name, c.dialconfig)
 	if err != nil {
-		return err
+		return errors.Join(err, ErrConnectFailed)
 	}
 
 	defer inputConn.Close()
@@ -337,7 +359,7 @@ func (c *Client) runOnce() error {
 
 	inputCh, outputCh, err := createChannels(inputConn, outputConn)
 	if err != nil {
-		return err
+		return errors.Join(err, ErrConnectFailed)
 	}
 
 	defer inputCh.Close()
@@ -357,7 +379,7 @@ func (c *Client) runOnce() error {
 
 	repliesConsumerTag, err := c.runRepliesConsumer(inputCh, &wg)
 	if err != nil {
-		return err
+		return errors.Join(err, ErrConsumerStartFailed)
 	}
 
 	if c.confirmMode {
