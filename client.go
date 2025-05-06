@@ -603,12 +603,12 @@ func (c *Client) runConfirmsConsumer(confirms chan amqp.Confirmation, returns ch
 
 			request, ok := c.requestsMap.GetByDeliveryTag(confirm.DeliveryTag)
 			if !ok {
-				// This could happen if we stop waiting for requests to return due
-				// to a timeout. But since confirmations are normally very fast that
-				// would mean that something isn't quite right on the amqp server.
-				// Unfortunately there isn't any way of getting more information
-				// than the delivery tag from a confirmation.
-				c.logger.Error(
+				// The runRepliesConsumer may receive response deliveries
+				// before we receive the confirmation. In such cases, the
+				// request may have already been removed from the requestsMap.
+				// This is expected behavior, not an error.
+				// See: https://www.rabbitmq.com/docs/confirms#publisher-confirms-latency
+				c.logger.Debug(
 					"got confirmation of unknown request",
 					slog.Uint64("delivery_tag", confirm.DeliveryTag),
 				)
